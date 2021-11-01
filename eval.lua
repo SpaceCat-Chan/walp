@@ -609,7 +609,11 @@ local instructions = {
     end,
     -- EXTRA INSTRUCTIONS ----------------------------
     [0xFC] = function(ins, stack, frame, labels)
-        extra_instructions[ins[2]](ins, stack, frame, labels)
+        local ei = extra_instructions[ins[2]]
+        if ei == nil then
+            error("missing instruction for 0xFC "..tostring(ins[2]))
+        end
+        ei(ins, stack, frame, labels)
     end
 }
 instructions[0x1C] = instructions[0x1B]
@@ -791,7 +795,11 @@ extra_instructions = {
 local function simple_eval(expr)
     local stack = {}
     for _,ins in ipairs(expr[1]) do
-        instructions[ins[1]](ins, stack, nil, nil)
+        local i = instructions[ins[1]]
+        if i == nil then
+            error(string.format("missing instruction %X", ins[1]))
+        end
+        i(ins, stack, nil, nil)
     end
     return pop(stack)
 end
@@ -806,13 +814,21 @@ end
 
 eval_instructions_with = function(ins, stack, frame, labels)
     for _,ins in ipairs(ins) do
-        local r,p = instructions[ins[1]](ins, stack, frame, labels)
+        local i = instructions[ins[1]]
+        if i == nil then
+            error(string.format("missing instruction %X", ins[1]))
+        end
+        local r,p = i(ins, stack, frame, labels)
         if r then return r,p end
     end
 end
 
 eval_single_with = function(ins, stack, frame, labels)
-    return instructions[ins[1]](ins, stack, frame, labels)
+    local i = instructions[ins[1]]
+    if i == nil then
+        error(string.format("missing instruction %X", ins[1]))
+    end
+    return i(ins, stack, frame, labels)
 end
 
 local function fill_elems(module)
