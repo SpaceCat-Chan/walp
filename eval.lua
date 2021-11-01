@@ -826,7 +826,7 @@ end
 eval_single_with = function(ins, stack, frame, labels)
     local i = instructions[ins[1]]
     if i == nil then
-        error(string.format("missing instruction %X", ins[1]))
+        error(string.format("missing instruction %x", ins[1]))
     end
     return i(ins, stack, frame, labels)
 end
