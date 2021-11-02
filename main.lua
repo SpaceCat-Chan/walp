@@ -8,7 +8,7 @@ local function preprocess(parsed_result)
 end
 
 local function parse(filename)
-    local file, err = io.open(filename, "r")
+    local file, err = io.open(filename, "rb")
     if file == nil then
         return nil, err
     end

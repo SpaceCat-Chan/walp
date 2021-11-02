@@ -13,21 +13,29 @@ local function pop(stack)
 end
 
 local function signed(N, i)
-    if i > 2^(N-1) then
-        return i - 2^N
+    if i > math.pow(2,N-1) then
+        return i - math.pow(2,N)
     end
     return i
 end
 
 local function inv_signed(N, i)
     if i < 0 then
-        return i + 2^N
+        return i + math.pow(2,N)
     end
     return i
 end
 
 local function extend(M,N, i)
     return inv_signed(N, signed(M,i))
+end
+
+local function trunc(i)
+    if i >= 0 then
+        return math.floor(i)
+    else
+        return math.ceil(i)
+    end
 end
 
 local function expand_type(t, module)
@@ -84,7 +92,7 @@ local function invoke(addr, stack, frame, labels)
 	end
 
     if new_f.hostcode then
-        local results = {new_f.hostcode(table.unpack(args))}
+        local results = {new_f.hostcode((table.unpack or unpack)(args))}
         for x=1,#results do
             push(stack, results[x])
         end
@@ -98,16 +106,166 @@ local function invoke(addr, stack, frame, labels)
 			args[x+arg_count] = 0
 		end
 	end
-	
+
 	local new_frame = {module = frame.module, locals = args, type=new_f.type}
 	push(labels, new_f.type)
 	local r, p = eval_instructions_with(new_f.code.body[1], stack, new_frame, labels)
 	pop(labels)
     if r then
-	    for x=1,#new_f.type[2] do
+	    for x=1,#new_f.type.to do
 		    push(stack, p[x])
 	    end
     end
+end
+
+local function i64_ge_u(n1, n2)
+    if n1.h > n2.h then
+        return 1
+    elseif n1.h == n2.h then
+        if n1.l >= n2.l then
+            return 1
+        else
+            return 0
+        end
+    else
+        return 0
+    end
+end
+local function i64_gt_u(n1, n2)
+    if n1.h > n2.h then
+        return 1
+    elseif n1.h == n2.h then
+        if n1.l > n2.l then
+            return 1
+        else
+            return 0
+        end
+    else
+        return 0
+    end
+end
+local function i64_le_u(n1, n2)
+    if n1.h < n2.h then
+        return 1
+    elseif n1.h == n2.h then
+        if n1.l <= n2.l then
+            return 1
+        else
+            return 0
+        end
+    else
+        return 0
+    end
+end
+
+local function i64_add(n1,n2)
+    local low = n1.l + n2.l
+    local high = n1.h + n2.h + (low >= 4294967296 and 1 or 0)
+    return {
+        l = bit.band(low, 0xFFFFFFFF),
+        h = bit.band(high, 0xFFFFFFFF)
+    }
+end
+
+local function i64_sub(n1,n2)
+    local low = n1.l - n2.l
+    local high = n1.h - n2.h - (low < 0 and 1 or 0)
+    return {
+        l = inv_signed(32, low),
+        h = inv_signed(32, high)
+    }
+end
+
+local function i64_mul(a,b)
+    local a48 = bit.rshift(a.h,16)
+    local a32 = bit.band(a.h,65535)
+    local a16 = bit.rshift(a.l,16)
+    local a00 = bit.band(a.l,65535)
+
+    local b48 = bit.rshift(b.h,16)
+    local b32 = bit.band(b.h,65535)
+    local b16 = bit.rshift(b.l,16)
+    local b00 = bit.band(b.l,65535)
+
+    local c00 = a00 * b00
+    local c16 = bit.rshift(c00,16)
+    c00 = bit.band(c00,65535)
+
+    c16 = c16 + a16 * b00
+    local c32 = bit.rshift(c16,16)
+    c16 = bit.band(c16,65535)
+
+    c16 = c16 + a00 * b16
+    c32 = c32 + bit.rshift(c16,16)
+    c16 = bit.band(c16,65535)
+
+    c32 = c32 + a32 * b00
+    local c48 = bit.rshift(c32,16)
+    c32 = bit.band(c32,65535)
+
+    c32 = c32 + a16 * b16
+    c48 = c48 + bit.rshift(c32,16)
+    c32 = bit.band(c32,65535)
+
+    c32 = c32 + a00 * b32
+    c48 = c48 + bit.rshift(c32,16)
+    c32 = bit.band(c32,65535)
+
+    c48 = c48 + a48 * b00 + a32 * b16 + a16 * b32 + a00 * b48
+    c48 = bit.band(c48,65535)
+
+    return {
+        l = bit.bor(c00,bit.lshift(c16,16)),
+        h = bit.bor(c32,bit.lshift(c48,16))
+    }
+end
+
+local function i64_div_core(rem, divisor)
+    assert(divisor.l ~= 0 or divisor.h ~= 0,"divide by zero")
+
+    local res = {
+        l = 0,
+        h = 0,
+    }
+
+    local d_approx = divisor.l + divisor.h * 4294967296
+
+    while i64_ge_u(rem, divisor) == 1 do
+        local n_approx = rem.l + rem.h * 4294967296
+
+        -- Don't allow our approximation to be larger than an i64
+        n_approx = math.min(n_approx, 18446744073709549568)
+
+        local q_approx = math.max(1, math.floor(n_approx / d_approx))
+
+        -- dark magic from long.js / closure lib
+        local log2 = math.ceil(math.log(q_approx, 2))
+        local delta = math.pow(2,math.max(0,log2 - 48))
+
+        local res_approx_low, res_approx_high = bit.band(math.floor(q_approx), 0xFFFFFFFF), bit.band(math.floor(q_approx/math.pow(2,32)), 0xFFFFFFFF)
+        local res_approx = {l = res_approx_low, h = res_approx_high}
+        local rem_approx = i64_mul(res_approx, divisor)
+
+        -- decrease approximation until smaller than remainder and the multiply hopefully
+        while i64_gt_u(rem_approx, rem) == 1 do
+            q_approx = q_approx - delta
+            res_approx_low, res_approx_high = bit.band(math.floor(q_approx), 0xFFFFFFFF), bit.band(math.floor(q_approx/math.pow(2,32)), 0xFFFFFFFF)
+            res_approx = {l = res_approx_low, h = res_approx_high}
+            rem_approx = i64_mul(res_approx, divisor)
+        end
+
+        -- res must be at least one, lib I copied the algo from had this check
+        -- but I'm not sure is necessary or makes sense
+        if res_approx.l == 0 and res_approx.h == 0 then
+            error("res_approx = 0")
+            res_approx.l = 1
+        end
+
+        res = i64_add(res, res_approx)
+        rem = i64_sub(rem, rem_approx)
+    end
+
+    return res, rem
 end
 
 local instructions = {
@@ -127,9 +285,6 @@ local instructions = {
             return -1, p
         end
         if r ~= nil then
-            if r > 0 then
-                return r - 1, p
-            end
             if r > 0 then
                 return r - 1, p
             end
@@ -167,7 +322,7 @@ local instructions = {
             end
         end
     end,
-    [0x04] = function(ins, stack, frame, labels) --
+    [0x04] = function(ins, stack, frame, labels) -- if else
         local new_label = expand_type(ins, frame.module)
         local c = pop(stack)
         local r, p
@@ -213,7 +368,7 @@ local instructions = {
     end,
     [0x0E] = function(ins, stack, frame, labels) -- br_table
         local i = pop(stack)
-        if i+1 > #ins[2] then
+        if i+1 <= #ins[2] then
             return eval_single_with({0x0C, ins[2][i+1]}, stack, frame, labels)
         else
             return eval_single_with({0x0C, ins[3]}, stack, frame, labels)
@@ -231,8 +386,8 @@ local instructions = {
         return invoke(ins[2], stack, frame, labels)
     end,
     [0x11] = function(ins, stack, frame, labels) -- call_indirect
-        local tab = frame.module.store.tables[ins[2]+1]
-        local ft_expect = frame.module.types[ins[3]+1]
+        local tab = frame.module.store.tables[ins[3]+1]
+        local ft_expect = frame.module.types[ins[2]+1]
         local i = pop(stack)
         if i >= #tab.elem then
             error("trap")
@@ -249,7 +404,7 @@ local instructions = {
             error("trap")
         end
         for k,v in pairs(ft_actual.from) do
-            if v ~= ft_expect[k] then
+            if v ~= ft_expect.from[k] then
                 error("trap")
             end
         end
@@ -311,7 +466,7 @@ local instructions = {
     end,
     -- TABLE INSTRUCTIONS ----------------------------
     [0x25] = function(ins, stack, frame) -- table.get
-        local tab = frame.module.store.tables[ins[2]]
+        local tab = frame.module.store.tables[ins[2]+1]
         local i = pop(stack)
         if i >= #tab.elem then
             error("trap")
@@ -331,24 +486,24 @@ local instructions = {
     -- MEMORY INSTRUCTIONS ---------------------------
     [0x28] = function(ins, stack, frame) -- i32.load
         local bytes = load_from(ins, stack, frame, 32)
-        push(stack, bit_conv.UInt8sToUInt32(table.unpack(bytes)))
+        push(stack, bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes)))
     end,
     [0x29] = function(ins, stack, frame) -- i64.load
         local bytes = load_from(ins, stack, frame, 64)
         push(stack, {
-            l=bit_conv.UInt8sToUInt32(table.unpack(bytes, 1, 4)),
-            h=bit_conv.UInt8sToUInt32(table.unpack(bytes, 5, 8))
+            l=bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes, 1, 4)),
+            h=bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes, 5, 8))
         })
     end,
     [0x2A] = function(ins, stack, frame) -- f32.load
         local bytes = load_from(ins, stack, frame, 32)
-        push(stack, bit_conv.UInt32ToFloat(bit_conv.UInt8sToUInt32(table.unpack(bytes))))
+        push(stack, bit_conv.UInt32ToFloat(bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes))))
     end,
     [0x2B] = function(ins, stack, frame) -- f64.load
         local bytes = load_from(ins, stack, frame, 64)
         push(stack, bit_conv.UInt32sToDouble(
-            bit_conv.UInt8sToUInt32(table.unpack(bytes, 1, 4)),
-            bit_conv.UInt8sToUInt32(table.unpack(bytes, 5, 8))
+            bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes, 1, 4)),
+            bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes, 5, 8))
         ))
     end,
     [0x2C] = function(ins, stack, frame) -- i32.load8_s
@@ -361,11 +516,11 @@ local instructions = {
     end,
     [0x2E] = function(ins, stack, frame) -- i32.load16_s
         local bytes = load_from(ins, stack, frame, 16)
-        push(stack, extend(16,32, bit_conv.UInt8sToUInt16(table.unpack(bytes))))
+        push(stack, extend(16,32, bit_conv.UInt8sToUInt16((table.unpack or unpack)(bytes))))
     end,
     [0x2F] = function(ins, stack, frame) -- i32.load16_u
         local bytes = load_from(ins, stack, frame, 16)
-        push(stack, bit_conv.UInt8sToUInt16(table.unpack(bytes)))
+        push(stack, bit_conv.UInt8sToUInt16((table.unpack or unpack)(bytes)))
     end,
     [0x30] = function(ins, stack, frame) -- i64.load8_s
         local bytes = load_from(ins, stack, frame, 8)
@@ -381,7 +536,7 @@ local instructions = {
     end,
     [0x32] = function(ins, stack, frame) -- i64.load16_s
         local bytes = load_from(ins, stack, frame, 16)
-        local raw_num = bit_conv.UInt8sToUInt16(table.unpack(bytes))
+        local raw_num = bit_conv.UInt8sToUInt16((table.unpack or unpack)(bytes))
         if bit.band(raw_num, 0x8000) ~= 0 then
             push(stack, {l=extend(16, 32, raw_num), h=0xFFFFFFFF})
         else
@@ -390,11 +545,11 @@ local instructions = {
     end,
     [0x33] = function(ins, stack, frame) -- i64.load16_u
         local bytes = load_from(ins, stack, frame, 16)
-        push(stack, {l=bit_conv.UInt8sToUInt16(table.unpack(bytes)), h=0})
+        push(stack, {l=bit_conv.UInt8sToUInt16((table.unpack or unpack)(bytes)), h=0})
     end,
     [0x34] = function(ins, stack, frame) -- i64.load32_s
         local bytes = load_from(ins, stack, frame, 32)
-        local raw_num = bit_conv.UInt8sToUInt32(table.unpack(bytes))
+        local raw_num = bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes))
         if bit.band(raw_num, 0x80000000) ~= 0 then
             push(stack, {l = raw_num, h=0xFFFFFFFF})
         else
@@ -403,7 +558,7 @@ local instructions = {
     end,
     [0x35] = function(ins, stack, frame) -- i64.load32_u
         local bytes = load_from(ins, stack, frame, 32)
-        push(stack, {l=bit_conv.UInt8sToUInt32(table.unpack(bytes)), h=0})
+        push(stack, {l=bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes)), h=0})
     end,
     [0x36] = function(ins, stack, frame) -- i32.store
         local c = pop(stack)
@@ -454,11 +609,11 @@ local instructions = {
     end,
     [0x3F] = function(ins, stack, frame) -- memory.size
         local m = ins[2]
-        local mem = frame.module.store.mems[m]
+        local mem = frame.module.store.mems[m+1]
         push(stack, #mem.data / 65536)
     end,
     [0x40] = function(ins, stack, frame) -- memory.grow
-        local mem = frame.module.store.mems[ins[2]]
+        local mem = frame.module.store.mems[ins[2]+1]
         local sz = #mem.data / 65536
         local n = pop(stack)
         if mem.type.max and mem.type.max < sz + n then
@@ -495,91 +650,129 @@ local instructions = {
     [0x47] = function(ins, stack, frame) -- i32.ne
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 == n2 then
-            push(stack, 0)
-        else
+        if n1 ~= n2 then
             push(stack, 1)
+        else
+            push(stack, 0)
         end
     end,
-    [0x48] = function(ins, stack, frame) -- i32.lt_s NEW
+    [0x48] = function(ins, stack, frame) -- i32.lt_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         if signed(32, n1) < signed(32, n2) then
-            push(stack, 0)
-        else
             push(stack, 1)
+        else
+            push(stack, 0)
         end
     end,
-    [0x49] = function(ins, stack, frame) -- i32.lt_u NEW
+    [0x49] = function(ins, stack, frame) -- i32.lt_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 < n2 then
-            push(stack, 0)
-        else
             push(stack, 1)
+        else
+            push(stack, 0)
         end
     end,
-    [0x4A] = function(ins, stack, frame) -- i32.gt_s NEW
+    [0x4A] = function(ins, stack, frame) -- i32.gt_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         if signed(32, n1) > signed(32, n2) then
-            push(stack, 0)
-        else
             push(stack, 1)
+        else
+            push(stack, 0)
         end
     end,
-    [0x4B] = function(ins, stack, frame) -- i32.gt_u NEW
+    [0x4B] = function(ins, stack, frame) -- i32.gt_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 > n2 then
-            push(stack, 0)
-        else
             push(stack, 1)
+        else
+            push(stack, 0)
         end
     end,
-    [0x4C] = function(ins, stack, frame) -- i32.le_s NEW
+    [0x4C] = function(ins, stack, frame) -- i32.le_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         if signed(32, n1) <= signed(32, n2) then
-            push(stack, 0)
-        else
             push(stack, 1)
+        else
+            push(stack, 0)
         end
     end,
-    [0x4D] = function(ins, stack, frame) -- i32.le_u NEW
+    [0x4D] = function(ins, stack, frame) -- i32.le_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 <= n2 then
-            push(stack, 0)
-        else
             push(stack, 1)
+        else
+            push(stack, 0)
         end
     end,
-    [0x4E] = function(ins, stack, frame) -- i32.ge_s NEW
+    [0x4E] = function(ins, stack, frame) -- i32.ge_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         if signed(32, n1) >= signed(32, n2) then
-            push(stack, 0)
-        else
             push(stack, 1)
+        else
+            push(stack, 0)
         end
     end,
-    [0x4F] = function(ins, stack, frame) -- i32.ge_u NEW
+    [0x4F] = function(ins, stack, frame) -- i32.ge_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 >= n2 then
-            push(stack, 0)
-        else
             push(stack, 1)
+        else
+            push(stack, 0)
         end
+    end,
+    [0x50] = function(ins, stack, frame) -- i64.eqz
+        local n = pop(stack)
+        if n.l == 0 and n.h == 0 then
+            push(stack, 1)
+        else
+            push(stack, 0)
+        end
+    end,
+    [0x54] = function(ins, stack, frame) -- i64.lt_u
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        if n1.h < n2.h then
+            push(stack, 1)
+        elseif n1.h == n2.h then
+            if n1.l < n2.l then
+                push(stack, 1)
+            else
+                push(stack, 0)
+            end
+        else
+            push(stack, 0)
+        end
+    end,
+    [0x56] = function(ins, stack, frame) -- i64.gt_u
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        push(stack, i64_gt_u(n1,n2))
+    end,
+    [0x58] = function(ins, stack, frame) -- i64.le_u
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        push(stack, i64_le_u(n1,n2))
+    end,
+    [0x5A] = function(ins, stack, frame) -- i64.ge_u
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        push(stack, i64_ge_u(n1, n2))
     end,
     [0x5D] = function(ins, stack, frame) -- f32.lt
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 < n2 then
-            push(stack, 0)
-        else
             push(stack, 1)
+        else
+            push(stack, 0)
         end
     end,
     [0x6A] = function(ins, stack, frame) -- i32.add
@@ -590,7 +783,32 @@ local instructions = {
     [0x6B] = function(ins, stack, frame) -- i32.sub
         local n2 = pop(stack)
         local n1 = pop(stack)
-        push(stack, (n1-n2) % 0x100000000)
+        push(stack, inv_signed(32, n1-n2))
+    end,
+    [0x6C] = function(ins, stack, frame) -- i32.mul
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        push(stack, bit.band(n1*n2, 0xFFFFFFFF))
+    end,
+    [0x6D] = function(ins, stack, frame) -- i32.div_s
+        local n2 = signed(32, pop(stack))
+        local n1 = signed(32, pop(stack))
+        if n2 == 0 then
+            error("trap, i32.div_s div by 0")
+        end
+        local res = math.floor(n1 / n2)
+        if res == math.pow(2, 31) then
+            error("trap, division resulted in 2^31")
+        end
+        push(stack, inv_signed(32, res))
+    end,
+    [0x6E] = function(ins, stack, frame) -- i32.div_u
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        if n2 == 0 then
+            error("trap, i32.div_s div by 0")
+        end
+        push(stack, math.floor(n1 / n2))
     end,
     [0x71] = function(ins, stack, frame) -- i32.and
         local n2 = pop(stack)
@@ -602,10 +820,154 @@ local instructions = {
         local n1 = pop(stack)
         push(stack, bit.bor(n1,n2))
     end,
-    [0x76] = function(ins, stack, frame) -- i32.shr_u
+    [0x73] = function(ins, stack, frame) -- i32.xor
         local n2 = pop(stack)
         local n1 = pop(stack)
-        push(stack, bit.band(bit.blogic_rshift(n1,n2)))
+        push(stack, bit.bxor(n1, n2))
+    end,
+    [0x74] = function(ins, stack, frame) -- i32.shl
+        local n2 = pop(stack) % 32
+        local n1 = pop(stack)
+        push(stack, bit.band(bit.lshift(n1,n2), 0xFFFFFFFF))
+    end,
+    [0x75] = function(ins, stack, frame) -- i32.shr_s
+        local n2 = pop(stack) % 32
+        local n1 = pop(stack)
+        push(stack, bit.arshift(n1, n2))
+    end,
+    [0x76] = function(ins, stack, frame) -- i32.shr_u
+        local n2 = pop(stack) % 32
+        local n1 = pop(stack)
+        push(stack, bit.rshift(n1,n2))
+    end,
+    [0x7C] = function(ins, stack, frame) -- i64.add
+        local b = pop(stack)
+        local a = pop(stack)
+        push(stack, i64_add(a,b))
+    end,
+    [0x7D] = function(ins, stack, frame) -- i64.sub
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        push(stack, i64_sub(n1,n2))
+    end,
+    [0x7E] = function(ins, stack, frame) -- i64.mul
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        push(stack, i64_mul(n1,n2))
+    end,
+    [0x80] = function(ins, stack, frame) -- i64.div_u
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        local res,res = i64_div_core(n1,n2)
+        push(stack, res)
+    end,
+    [0x83] = function(ins, stack, frame) -- i64.and
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        push(stack, {
+            l = bit.band(n1.l, n2.l),
+            h = bit.band(n1.h, n2.h)
+        })
+    end,
+    [0x84] = function(ins, stack, frame) -- i64.or
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        push(stack, {
+            l = bit.bor(n1.l, n2.l),
+            h = bit.bor(n1.h, n2.h)
+        })
+    end,
+    [0x85] = function(ins, stack, frame) -- i64.xor
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        push(stack, {
+            l = bit.bxor(n1.l, n2.l),
+            h = bit.bxor(n1.h, n2.h)
+        })
+    end,
+    [0x86] = function(ins, stack, frame) -- i64.shl
+        local n2 = pop(stack).l % 64
+        local n1 = pop(stack)
+        if n2 < 32 then
+            local h = bit.bor(bit.lshift(n1.h, n2), bit.rshift(n1.l, 32-n2))
+            push(stack, {
+                l = bit.lshift(n1.l, n2),
+                h = h,
+            })
+        elseif n2 == 32 then
+            push(stack, {
+                l = 0,
+                h = n1.l,
+            })
+        else
+            push(stack, {
+                l = 0,
+                h = bit.lshift(n1.l, n2-32),
+            })
+        end
+    end,
+    [0x87] = function(ins, stack, frame) -- i64.shr_s
+        local n2 = pop(stack).l % 64
+        local n1 = pop(stack)
+        if n2 == 0 then
+            push(stack, {
+                l = n1.l,
+                h = n1.h,
+            })
+        elseif n2 < 32 then
+            local l = bit.bor(bit.lshift(n1.h,32-n2), bit.rshift(n1.l, n2))
+            push(stack, {
+                l = l,
+                h = bit.arshift(n1.h, n2)
+            })
+        elseif n2 == 32 then
+            push(stack, {
+                l = n1.h,
+                h = bit.arshift(n1.h, 32)
+            })
+        else
+            push(stack, {
+                l = bit.arshift(n1.h, n2-32),
+                h = bit.arshift(n1.h, 32)
+            })
+        end
+    end,
+    [0x88] = function(ins, stack, frame) -- i64.shr_u
+        local n2 = pop(stack).l % 64
+        local n1 = pop(stack)
+        if n2 == 0 then
+            push(stack, {
+                l = n1.l,
+                h = n1.h,
+            })
+        elseif n2 < 32 then
+            local l = bit.bor(bit.lshift(n1.h,32-n2), bit.rshift(n1.l, n2))
+            push(stack, {
+                l = l,
+                h = bit.rshift(n1.h, n2)
+            })
+        elseif n2 == 32 then
+            push(stack, {
+                l = n1.h,
+                h = 0
+            })
+        else
+            push(stack, {
+                l = bit.rshift(n1.h, n2-32),
+                h = 0
+            })
+        end
+    end,
+    [0xA7] = function(ins, stack, frame) -- i32.wrap_i64
+        push(stack, pop(stack).l)
+    end,
+    [0xAD] = function(ins, stack, frame) -- i64.extend_i32_u
+        local n = pop(stack)
+        push(stack, {l = n, h = 0})
+    end,
+    [0xBC] = function(ins, stack, frame) -- i32.reinterpret_f32
+        local n = pop(stack)
+        push(stack, bit_conv.FloatToUInt32(n))
     end,
     -- EXTRA INSTRUCTIONS ----------------------------
     [0xFC] = function(ins, stack, frame, labels)
@@ -813,12 +1175,12 @@ local function simple_list_eval(exprs)
 end
 
 eval_instructions_with = function(ins, stack, frame, labels)
-    for _,ins in ipairs(ins) do
-        local i = instructions[ins[1]]
+    for _,sins in ipairs(ins) do
+        local i = instructions[sins[1]]
         if i == nil then
-            error(string.format("missing instruction %X", ins[1]))
+            error(string.format("missing instruction 0x%X", sins[1]))
         end
-        local r,p = i(ins, stack, frame, labels)
+        local r,p = i(sins, stack, frame, labels)
         if r then return r,p end
     end
 end
@@ -874,7 +1236,7 @@ end
 local function call_function(module, funcidx, args)
     local frame = {module = module, locals = {}}
     eval_single_with({0x10, funcidx}, args, frame, {})
-    return table.unpack(args)
+    return (table.unpack or unpack)(args)
 end
 
 local function make_memory_interface(module, memidx, interface_export)

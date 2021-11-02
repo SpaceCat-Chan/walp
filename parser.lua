@@ -3,6 +3,25 @@ local bit = bit32
 local require_path = (...):match("(.-)[^%.]+$")
 local bit_conv = require(require_path.."bitconverter")
 
+
+local function signed(N, i)
+    if i > math.pow(2,N-1) then
+        return i - math.pow(2,N)
+    end
+    return i
+end
+
+local function inv_signed(N, i)
+    if i < 0 then
+        return i + math.pow(2,N)
+    end
+    return i
+end
+
+local function extend(M,N, i)
+    return inv_signed(N, signed(M,i))
+end
+
 local function take(byte, return_instead)
     return function(inseq, ptr)
         if inseq(ptr) == byte then
@@ -156,11 +175,9 @@ end
 local function sLEB(inseq, ptr)
     local bytes, ptr = LEBlist(inseq, ptr)
     if bytes == nil then return nil end
-    local result = interpuLEB(bytes)
+    local result = extend(7 * #bytes, 32, interpuLEB(bytes))
 
-    local m = bit.lshift(1, (7 * #bytes - 1))
-
-    return bit.bxor(result, m) - m, ptr
+    return result, ptr
 end
 
 local function iLEB(inseq, ptr)
@@ -175,14 +192,13 @@ local function interpuLEB64(bytes)
         local byte = bytes[idx]
         low = bit.bor(low, bit.lshift(bit.band(byte, 0x7F), (idx-1)*7))
     end
-    if 4 > byte_count then return high,low end
-    low = bit.bor(low, bit.lshift(bit.band(bytes[5], 0x0F), 28))
     if 5 > byte_count then return high,low end
+    low = bit.bor(low, bit.lshift(bit.band(bytes[5], 0x0F), 28))
     high = bit.rshift(bit.band(bytes[5], 0x70), 4)
     for idx=6,10 do
         if idx > byte_count then return high,low end
-        local byte = bytes[idx+5]
-        low = bit.bor(low, bit.lshift(bit.band(byte, 0x7F), (idx-1)*7+3))
+        local byte = bytes[idx]
+        high = bit.bor(high, bit.lshift(bit.band(byte, 0x7F), (idx-1)*7+3))
     end
     return high, low
 end
@@ -202,13 +218,10 @@ local function sLEB64(inseq, ptr)
     end
     local high, low = interpuLEB64(bytes)
     if #bytes < 5 then
-        local m = bit.lshift(1, (7 * #bytes - 1))
-
-        low = bit.bxor(low, m) - m
+        low = extend(7 * #bytes, 32, low)
+        high = bit.arshift(bit.band(low,0x80000000),32)
     else
-        local m = bit.lshift(1, (7 * (#bytes - 5) + 2))
-
-        high = bit.bxor(high, m) - m
+        high = extend((7 * #bytes + 3)-32, 32, high)
     end
     return {h = high, l = low}, ptr
 end
