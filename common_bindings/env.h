@@ -1,4 +1,3 @@
-#pragma once
 #include <cstddef>
 #include <cinttypes>
 #define WALP false //toggle to false for testing, true for compiling for WALP
@@ -16,21 +15,22 @@ extern "C"
     void delete_string(int32_t str_idx)
 }
 #else
-
 #include <cstdio>
+#include <random>
+#include <unordered_map>
+#include <string>
+#include <stdlib.h>
+#include <string>
+
 void print(char *ptr, size_t size) { printf(ptr); }
 
-#include <random>
 static std::random_device rd;
 static std::mt19937 gen(rd());
 static std::uniform_real_distribution<> dis(0.0, 1.0);
 double math_random() { return dis(gen); }
 
-#include <unordered_map>
-#include <string>
 static std::unordered_map<int32_t, std::string> str_map;
 
-#include <stdlib.h>
 double tonumber(char *str, int32_t size)
 {
     double res;
