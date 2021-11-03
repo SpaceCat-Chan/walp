@@ -6,7 +6,7 @@
 extern "C"
 {
 
-    void print(int32_t str, int32_t size);
+    void print(char *str, int32_t size);
     double math_random();
     double tonumber(const char *str, int32_t size);
     int32_t tostring(double number);
@@ -25,15 +25,7 @@ extern "C"
 
 static std::unordered_map<int32_t, std::string> str_map;
 
-void print(int32_t ptr, int32_t size)
-{
-    auto str_ref = str_map.find(ptr);
-    if (str_ref != str_map.end())
-    {
-        assert(str_ref->second.size() >= size);
-        printf("%.*s", size, str_ref->second.data());
-    }
-}
+void print(char *ptr, int32_t size) { printf("%.*s", size, ptr); }
 
 static std::random_device rd;
 static std::mt19937 gen(rd());
