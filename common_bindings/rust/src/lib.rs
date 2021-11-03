@@ -40,11 +40,11 @@ pub fn print_fmt(args: std::fmt::Arguments) {
 
 #[macro_export]
 macro_rules! walp_print {
-    ($($arg:tt)*) => (print_fmt(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::print_fmt(format_args!($($arg)*)));
 }
 
 #[macro_export]
 macro_rules! walp_println {
-    () => (print!("\n"));
-    ($($arg:tt)*) => (print!("{}\n", format_args!($($arg)*)));
+    () => ($crate::walp_print!("\n"));
+    ($($arg:tt)*) => ($crate::walp_print!("{}\n", format_args!($($arg)*)));
 }
