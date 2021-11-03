@@ -2,9 +2,14 @@ local require_path = (...):match("(.-)[^%.]+$")
 local bit_conv = require(require_path.."bitconverter")
 local bit = bit32
 
+local function cut_dot_0(s)
+    local _, _, new = string.find(s, "(%d+)%.?0?")
+    return new
+end
 local function push(stack, value)
     stack[#stack+1] = value
 end
+
 
 local function pop(stack)
     local value = stack[#stack]
@@ -266,6 +271,18 @@ local function i64_div_core(rem, divisor)
     end
 
     return res, rem
+end
+
+local __clz_tab = {3, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0}
+__clz_tab[0] = 4
+
+local function __CLZ__(x)
+    local n = 0
+    if bit.band(x,-65536)     == 0 then n = 16;    x = bit.lshift(x,16) end
+    if bit.band(x,-16777216)  == 0 then n = n + 8; x = bit.lshift(x,8) end
+    if bit.band(x,-268435456) == 0 then n = n + 4; x = bit.lshift(x,4) end
+    n = n + __clz_tab[bit.rshift(x,28)]
+    return n
 end
 
 local instructions = {
@@ -736,6 +753,25 @@ local instructions = {
             push(stack, 0)
         end
     end,
+    [0x51] = function(ins, stack, frame) -- i64.eq
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        if n1.l == n2.l and n1.h == n2.h then
+            push(stack, 1)
+        else
+            push(stack, 0)
+        end
+
+    end,
+    [0x52] = function(ins, stack, frame) -- i64.ne
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        if n1.l ~= n2.l or n1.h ~= n2.h then
+            push(stack, 1)
+        else
+            push(stack, 0)
+        end
+    end,
     [0x54] = function(ins, stack, frame) -- i64.lt_u
         local n2 = pop(stack)
         local n1 = pop(stack)
@@ -775,6 +811,10 @@ local instructions = {
             push(stack, 0)
         end
     end,
+    [0x67] = function(ins, stack, frame) -- i32.clz
+        local n = pop(stack)
+        push(stack, __CLZ__(n))
+    end,
     [0x6A] = function(ins, stack, frame) -- i32.add
         local n2 = pop(stack)
         local n1 = pop(stack)
@@ -796,7 +836,7 @@ local instructions = {
         if n2 == 0 then
             error("trap, i32.div_s div by 0")
         end
-        local res = math.floor(n1 / n2)
+        local res = trunc(n1 / n2)
         if res == math.pow(2, 31) then
             error("trap, division resulted in 2^31")
         end
@@ -840,6 +880,16 @@ local instructions = {
         local n1 = pop(stack)
         push(stack, bit.rshift(n1,n2))
     end,
+    [0x77] = function(ins, stack, frame) -- i32.rotl
+        local n2 = pop(stack) % 32
+        local n1 = pop(stack)
+        push(stack, bit.lrotate(n1, n2))
+    end,
+    [0x79] = function(ins, stack, frame) -- i64.clz
+        local n = pop(stack)
+        local result = (n.h ~= 0) and __CLZ__(n.h) or 32 + __CLZ__(n.l)
+        push(stack, {l = result, h = 0})
+    end,
     [0x7C] = function(ins, stack, frame) -- i64.add
         local b = pop(stack)
         local a = pop(stack)
@@ -858,7 +908,7 @@ local instructions = {
     [0x80] = function(ins, stack, frame) -- i64.div_u
         local n2 = pop(stack)
         local n1 = pop(stack)
-        local res,res = i64_div_core(n1,n2)
+        local res,rem = i64_div_core(n1,n2)
         push(stack, res)
     end,
     [0x83] = function(ins, stack, frame) -- i64.and
@@ -889,15 +939,10 @@ local instructions = {
         local n2 = pop(stack).l % 64
         local n1 = pop(stack)
         if n2 < 32 then
-            local h = bit.bor(bit.lshift(n1.h, n2), bit.rshift(n1.l, 32-n2))
+            local h = bit.bor(bit.lshift(n1.h, n2), n2 == 0 and 0 or bit.rshift(n1.l, 32-n2))
             push(stack, {
                 l = bit.lshift(n1.l, n2),
                 h = h,
-            })
-        elseif n2 == 32 then
-            push(stack, {
-                l = 0,
-                h = n1.l,
             })
         else
             push(stack, {
@@ -923,12 +968,12 @@ local instructions = {
         elseif n2 == 32 then
             push(stack, {
                 l = n1.h,
-                h = bit.arshift(n1.h, 32)
+                h = bit.arshift(n1.h, 31)
             })
         else
             push(stack, {
                 l = bit.arshift(n1.h, n2-32),
-                h = bit.arshift(n1.h, 32)
+                h = bit.arshift(n1.h, 31)
             })
         end
     end,
@@ -968,6 +1013,14 @@ local instructions = {
     [0xBC] = function(ins, stack, frame) -- i32.reinterpret_f32
         local n = pop(stack)
         push(stack, bit_conv.FloatToUInt32(n))
+    end,
+    [0xBD] = function(ins, stack, frame) -- i64.reinterpret_f64
+        local n = pop(stack)
+        local low, high = bit_conv.DoubleToUInt32s(n)
+        push(stack, {
+            l = low,
+            h = high
+        })
     end,
     -- EXTRA INSTRUCTIONS ----------------------------
     [0xFC] = function(ins, stack, frame, labels)

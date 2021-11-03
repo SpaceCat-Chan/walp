@@ -145,6 +145,7 @@ local function byte(insep, ptr)
     return insep(ptr), ptr + 1
 end
 
+
 local function LEBlist(insep, ptr)
     local results = {}
     while true do
@@ -198,7 +199,7 @@ local function interpuLEB64(bytes)
     for idx=6,10 do
         if idx > byte_count then return high,low end
         local byte = bytes[idx]
-        high = bit.bor(high, bit.lshift(bit.band(byte, 0x7F), (idx-1)*7+3))
+        high = bit.bor(high, bit.lshift(bit.band(byte, 0x7F), (idx-1)*7-32))
     end
     return high, low
 end
@@ -219,7 +220,7 @@ local function sLEB64(inseq, ptr)
     local high, low = interpuLEB64(bytes)
     if #bytes < 5 then
         low = extend(7 * #bytes, 32, low)
-        high = bit.arshift(bit.band(low,0x80000000),32)
+        high = bit.arshift(bit.band(low,0x80000000),31)
     else
         high = extend((7 * #bytes + 3)-32, 32, high)
     end
