@@ -7,6 +7,8 @@ pub mod raw {
         pub fn get_string_len(string: u32) -> usize;
         pub fn write_string_to_ptr(string: u32, ptr: *mut u8, len: usize) -> bool;
         pub fn delete_string(string: u32);
+        pub fn store_string(ptr: *const u8, len: usize) -> u32;
+        pub fn print_ssi(string: u32);
     }
 }
 
@@ -25,13 +27,11 @@ pub fn tonumber(ptr: *const u8, len: u32) -> f64 {
 }
 
 pub fn tostring(num: f64) -> Result<String, std::string::FromUtf8Error> {
-    let s = unsafe { raw::tostring(num) };
-    let len = unsafe { raw::get_string_len(s) };
+    tostring_ssi(num).as_string()
+}
 
-    let mut vec = Vec::with_capacity(len);
-    unsafe { raw::write_string_to_ptr(s, vec.as_mut_ptr(), len) };
-
-    String::from_utf8(vec)
+pub fn tostring_ssi(num: f64) -> SSI {
+    unsafe { SSI::from_index(raw::tostring(num)) }
 }
 
 pub fn print_fmt(args: std::fmt::Arguments) {
@@ -47,4 +47,44 @@ macro_rules! walp_print {
 macro_rules! walp_println {
     () => ($crate::walp_print!("\n"));
     ($($arg:tt)*) => ($crate::walp_print!("{}\n", format_args!($($arg)*)));
+}
+
+pub struct SSI {
+    index: u32,
+}
+
+impl SSI {
+    pub unsafe fn from_index(index: u32) -> SSI {
+        SSI { index }
+    }
+
+    pub fn from_string(s: &str) -> SSI {
+        Self {
+            index: unsafe { raw::store_string(s.as_ptr(), s.len()) },
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        unsafe { raw::get_string_len(self.index) }
+    }
+
+    pub fn as_vec(&self) -> Vec<u8> {
+        let len = unsafe { raw::get_string_len(self.index) };
+
+        let mut vec = Vec::with_capacity(len);
+        unsafe { raw::write_string_to_ptr(self.index, vec.as_mut_ptr(), len) };
+        vec
+    }
+
+    pub fn as_string(&self) -> Result<String, std::string::FromUtf8Error> {
+        String::from_utf8(self.as_vec())
+    }
+
+    pub fn delete(self) {
+        unsafe { raw::delete_string(self.index) }
+    }
+
+    pub fn print(&self) {
+        unsafe { raw::print_ssi(self.index) }
+    }
 }
