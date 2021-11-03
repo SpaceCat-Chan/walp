@@ -14,7 +14,6 @@ return function(module, alt_name, memory)
     end
 
     module.IMPORTS[alt_name].tonumber = function(ptr, len)
-        print(ptr, len)
         local str = ""
         for x=str_ptr, ptr+len-1 do
             str = str..string.char(memory.read8(x))
@@ -47,5 +46,18 @@ return function(module, alt_name, memory)
 
     module.IMPORTS[alt_name].delete_string = function(index)
         string_table[index] = nil
+    end
+
+    module.IMPORTS[alt_name].store_string = function(ptr, len)
+        local str = ""
+        for x=str_ptr, ptr+len-1 do
+            str = str..string.char(memory.read8(x))
+        end
+        table.insert(string_table, str)
+        return #string_table
+    end
+    module.IMPORTS[alt_name].print_ssi = function(index)
+        if string_table[index] == nil then return end
+        io.write(string_table[index])
     end
 end
