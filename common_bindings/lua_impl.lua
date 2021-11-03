@@ -4,7 +4,7 @@ return function(module, alt_name, memory)
     module.IMPORTS[alt_name] = module.IMPORTS[alt_name] or {}
 
     module.IMPORTS[alt_name].print = function(ptr, len)
-        for x=str_ptr, ptr+len-1 do
+        for x=ptr, ptr+len-1 do
             io.write(string.char(memory.read8(x)))
         end
     end
@@ -14,6 +14,7 @@ return function(module, alt_name, memory)
     end
 
     module.IMPORTS[alt_name].tonumber = function(ptr, len)
+        print(ptr, len)
         local str = ""
         for x=str_ptr, ptr+len-1 do
             str = str..string.char(memory.read8(x))
