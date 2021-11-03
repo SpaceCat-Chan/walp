@@ -83,6 +83,10 @@ SSI store_string(const char *str_ptr, int32_t size)
     return temp_hash;
 }
 
-void print_ssi(SSI str_idx) { printf("%s", str_map.at(str_idx).data()); }
+void print_ssi(SSI str_idx)
+{
+    auto &str_ref = str_map.at(str_idx);
+    printf("%.*s", str_ref.size(), str_ref.data());
+}
 
 #endif
