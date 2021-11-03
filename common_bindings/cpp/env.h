@@ -100,17 +100,17 @@ struct WasmString
     WasmString(const char *c_str)
     {
         std::string temp_str(c_str);
-        SSI index = std::hash<std::string>{}(c_str);
+        index = std::hash<std::string>{}(c_str);
         str_map.try_emplace(index, std::move(temp_str));
     }
     WasmString(std::string &&str)
     {
-        SSI index = std::hash<std::string>{}(str);
+        index = std::hash<std::string>{}(str);
         str_map.try_emplace(index, std::move(str));
     }
     WasmString(std::string_view &str_view)
     {
-        SSI index = std::hash<std::string_view>{}(str_view);
+        index = std::hash<std::string_view>{}(str_view);
         str_map.try_emplace(index, str_view);
     }
     ~WasmString()
