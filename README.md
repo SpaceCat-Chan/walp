@@ -20,3 +20,25 @@ current languages:
 languages todo:
  - rust
  - lua (making the versions of the functions for loading the WASM)
+
+## functions
+
+all types used below are in WASM syntax, so the only ones that exist are  
+ - i32
+ - i64
+ - f32
+ - f64
+
+### print
+`print(ptr: i32, len: i32)`
+takes a pointer and a length, prints the string pointed to and prints it to the console
+
+### random
+`random() -> f32/f64`
+return a random number in the range \[0,1)
+
+### tostring
+TO BE CHANGED
+
+### tonumber
+TO BE CHANGED
