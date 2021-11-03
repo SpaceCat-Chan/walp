@@ -6,12 +6,12 @@
 extern "C"
 {
 
-    void print(int32_t *str, size_t size);
+    void print(int32_t str, int32_t size);
     double math_random();
-    double tonumber(const char *str, size_t size);
-    size_t tostring(double number);
-    size_t get_string_len(size_t str_idx);
-    void write_string_to_ptr(size_t str_idx, char *str, size_t size);
+    double tonumber(const char *str, int32_t size);
+    int32_t tostring(double number);
+    int32_t get_string_len(int32_t str_idx);
+    bool write_string_to_ptr(int32_t str_idx, char *str, int32_t size);
     void delete_string(int32_t str_idx)
 }
 #else
@@ -21,10 +21,19 @@ extern "C"
 #include <string>
 #include <stdlib.h>
 #include <string>
+#include <cassert>
 
 static std::unordered_map<int32_t, std::string> str_map;
 
-void print(int32_t *ptr, size_t size) { printf("%.*s", size, ptr); }
+void print(int32_t ptr, int32_t size)
+{
+    auto str_ref = str_map.find(ptr);
+    if (str_ref != str_map.end())
+    {
+        assert(str_ref->second.size() >= size);
+        printf("%.*s", size, str_ref->second.data());
+    }
+}
 
 static std::random_device rd;
 static std::mt19937 gen(rd());
