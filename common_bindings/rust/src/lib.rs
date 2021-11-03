@@ -89,3 +89,9 @@ impl SSI {
         unsafe { raw::print_ssi(self.index) }
     }
 }
+
+impl Drop for SSI {
+    fn drop(&mut self) {
+        unsafe { raw::delete_string(self.index) }
+    }
+}
