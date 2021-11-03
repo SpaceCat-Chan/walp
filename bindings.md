@@ -62,5 +62,5 @@ the string may not be deleted, as this is an optimization hint.
 stores a string into an SSI
 
 &nbsp;  
-`print_SSI(string: SSI)`  
+`print_ssi(string: SSI)`  
 prints a string stored in an SSI
