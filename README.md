@@ -56,7 +56,7 @@ if the string does not exist 0xFFFFFFFF is returned (if you are using signed num
 &nbsp;  
 `write_string_to_ptr(string: i32, ptr: i32, len: 32) -> bool`  
 takes a special string index, a pointer, and a length. then attempts to write the string to the pointer.  
-this function will not write more than the string length or the gived length.  
+this function will not write more than the string length or the given length.  
 no null termination is written.  
 if the string doesn't exist, nothing is written and false is returned.  
 true is returned on success.
