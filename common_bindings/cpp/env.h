@@ -90,3 +90,31 @@ void print_ssi(SSI str_idx)
 }
 
 #endif
+
+//convenient wrapper
+struct WasmString
+{
+    SSI index;
+
+    WasmString(double val) : index(tostring(val)) {}
+    WasmString(const char *c_str)
+    {
+        std::string temp_str(c_str);
+        SSI index = std::hash<std::string>{}(c_str);
+        str_map.try_emplace(index, std::move(temp_str));
+    }
+    WasmString(std::string &&str)
+    {
+        SSI index = std::hash<std::string>{}(str);
+        str_map.try_emplace(index, std::move(str));
+    }
+    WasmString(std::string_view &str_view)
+    {
+        SSI index = std::hash<std::string_view>{}(str_view);
+        str_map.try_emplace(index, str_view);
+    }
+    ~WasmString()
+    {
+        delete_string(index);
+    }
+};
