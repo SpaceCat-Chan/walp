@@ -23,7 +23,7 @@ languages todo:
 
 ## functions
 
-all types used below are in WASM syntax, so the only ones that exist are  
+all types used below are in WASM/Rust syntax, so the only ones that exist are  
  - i32
  - i64
  - f32
