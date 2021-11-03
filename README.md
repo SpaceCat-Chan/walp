@@ -36,7 +36,7 @@ all types used below are in WASM/Rust syntax, so the only ones that exist are
 takes a pointer and a length, and prints the string pointed to.
 
 &nbsp;  
-`random() -> f32/f64`  
+`math_random() -> f32/f64`  
 return a random number in the range \[0,1)
 
 &nbsp;  
