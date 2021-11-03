@@ -6,7 +6,7 @@
 extern "C"
 {
 
-    void print(char *str, size_t size);
+    void print(int32_t *str, size_t size);
     double math_random();
     double tonumber(const char *str, size_t size);
     size_t tostring(double number);
@@ -22,14 +22,14 @@ extern "C"
 #include <stdlib.h>
 #include <string>
 
-void print(char *ptr, size_t size) { printf(ptr); }
+static std::unordered_map<int32_t, std::string> str_map;
+
+void print(int32_t *ptr, size_t size) { printf("%.*s", size, ptr); }
 
 static std::random_device rd;
 static std::mt19937 gen(rd());
 static std::uniform_real_distribution<> dis(0.0, 1.0);
 double math_random() { return dis(gen); }
-
-static std::unordered_map<int32_t, std::string> str_map;
 
 double tonumber(char *str, int32_t size)
 {
