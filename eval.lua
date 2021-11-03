@@ -285,6 +285,19 @@ local function __CLZ__(x)
     return n
 end
 
+
+local __ctz_tab = {}
+
+for i = 0,31 do
+    __ctz_tab[ bit.rshift( 125613361 * bit.lshift(1,i) , 27 ) ] = i
+end
+
+local function __CTZ__(x)
+    if x == 0 then return 32 end
+    return __ctz_tab[ bit.rshift( bit.band(x,-x) * 125613361 , 27 ) ]
+end
+
+
 local instructions = {
     -- CONTROL INSTRUCTIONS ---------------------
     [0x00] = function(ins, stack, frame) -- unreachable
@@ -815,6 +828,10 @@ local instructions = {
         local n = pop(stack)
         push(stack, __CLZ__(n))
     end,
+    [0x68] = function(ins, stack, frame) -- i32.ctz
+        local n = pop(stack)
+        push(stack, __CTZ__(n))
+    end,
     [0x6A] = function(ins, stack, frame) -- i32.add
         local n2 = pop(stack)
         local n1 = pop(stack)
@@ -849,6 +866,14 @@ local instructions = {
             error("trap, i32.div_s div by 0")
         end
         push(stack, math.floor(n1 / n2))
+    end,
+    [0x70] = function(ins, stack, frame) -- i32.rem_u
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        if n2 == 0 then
+            error("trap, i32.rem_u div by zero")
+        end
+        push(stack, n1 - n2 * trunc(n1/n2))
     end,
     [0x71] = function(ins, stack, frame) -- i32.and
         local n2 = pop(stack)
