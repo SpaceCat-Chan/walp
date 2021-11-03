@@ -2,19 +2,14 @@
 #define WALP false //toggle to false for testing, true for compiling for WALP
 
 #if WALP
-#ifdef __cplusplus
 extern "C"
 {
-#endif
 
     void print(char *ptr, uint32_t length);
     double math_random();
     char *tostring(double number);
     double tonumber(char *str);
-
-#ifdef __cplusplus
 }
-#endif
 #else
 
 void print(char *ptr, uint32_t length) { printf(ptr); }
