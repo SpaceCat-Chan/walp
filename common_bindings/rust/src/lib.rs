@@ -1,14 +1,15 @@
 pub mod raw {
+    type SSI = u32;
     extern "C" {
         pub fn print(ptr: *const u8, len: usize);
         pub fn math_random() -> f64;
         pub fn tonumber(ptr: *const u8, len: u32) -> f64;
-        pub fn tostring(num: f64) -> u32;
-        pub fn get_string_len(string: u32) -> usize;
-        pub fn write_string_to_ptr(string: u32, ptr: *mut u8, len: usize) -> bool;
-        pub fn delete_string(string: u32);
-        pub fn store_string(ptr: *const u8, len: usize) -> u32;
-        pub fn print_ssi(string: u32);
+        pub fn tostring(num: f64) -> SSI;
+        pub fn get_string_len(string: SSI) -> usize;
+        pub fn write_string_to_ptr(string: SSI, ptr: *mut u8, len: usize) -> bool;
+        pub fn delete_string(string: SSI);
+        pub fn store_string(ptr: *const u8, len: usize) -> SSI;
+        pub fn print_ssi(string: SSI);
     }
 }
 
