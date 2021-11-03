@@ -16,10 +16,11 @@ the `common_bindings` folder contains some files that have some common functions
 
 current languages:
  - lua (making the versions of the functions for loading the WASM)
-
-languages todo:
  - rust
  - c++
+
+languages todo:
+ - currently none
 
 ## functions
 
