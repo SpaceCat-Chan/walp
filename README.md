@@ -6,10 +6,7 @@ currently, not all instructions are implemented, but it is gauranteed that all e
 
 
 # Examples
-
-## Game of Life (game_of_life)
-this program simulates 100 iterations of the game of life on a random 16x16 looping board
-
+all examples can be found on the sister repo [here](https://github.com/SpaceCat-Chan/walp_examples)
 
 # Bindings
 see the [bindings](bindings.md) for more info on some common helper functions
