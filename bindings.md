@@ -20,6 +20,8 @@ all types used below are in WASM/Rust syntax, so the only ones that exist are
  - f64
  - bool
 
+note: in wasm there is no difference between signed and unsigned integer types, it is up to the individual language binding to select which is used
+
 other than that, there are also some extra special types which mean special things  
 ### SSI
 underlying type: `i32`  
