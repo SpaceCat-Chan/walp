@@ -29,14 +29,14 @@ extern "C"
 
 static std::unordered_map<SSI, std::string> str_map;
 
-void print(const char *str_ptr, int32_t size) { printf("%.*s", size, str_ptr); }
+void print(const char *str_ptr, uint32_t size) { printf("%.*s", size, str_ptr); }
 
 static std::random_device rd;
 static std::mt19937 gen(rd());
 static std::uniform_real_distribution<> dis(0.0, 1.0);
 double math_random() { return dis(gen); }
 
-double tonumber(const char *str_ptr, int32_t size)
+double tonumber(const char *str_ptr, uint32_t size)
 {
     double res;
     strtod(str_ptr, (char **)&res);
@@ -51,7 +51,7 @@ SSI tostring(double number)
     return temp_hash;
 }
 
-int32_t get_string_len(SSI str_idx)
+uint32_t get_string_len(SSI str_idx)
 {
     auto str_ref = str_map.find(str_idx);
     if (str_ref != str_map.end())
@@ -64,7 +64,7 @@ int32_t get_string_len(SSI str_idx)
     }
 }
 
-bool write_string_to_ptr(SSI str_idx, char *str, int32_t size)
+bool write_string_to_ptr(SSI str_idx, char *str, uint32_t size)
 {
     auto str_ref = str_map.find(str_idx);
     if (str_ref != str_map.end())
@@ -80,7 +80,7 @@ bool write_string_to_ptr(SSI str_idx, char *str, int32_t size)
 
 void delete_string(SSI str_idx) { str_map.erase(str_idx); }
 
-SSI store_string(const char *str_ptr, int32_t size)
+SSI store_string(const char *str_ptr, uint32_t size)
 {
     std::string temp_str(std::string_view(str_ptr, size));
     SSI temp_hash = std::hash<std::string>{}(str_ptr);
@@ -97,12 +97,21 @@ void print_ssi(SSI str_idx)
 SSI read_line()
 {
     std::string str;
-    std::cin >> str;
+    getline(std::cin, str);
     SSI res = std::hash<std::string>{}(str);
     str_map.try_emplace(res, std::move(str));
     return res;
 }
 #endif
+
+std::string read_line_str()
+{
+    SSI index = read_line();
+    uint32_t str_size = get_string_len(index);
+    std::string str(new char[str_size], str_size);
+    write_string_to_ptr(index, str.data(), str_size);
+    return str;
+}
 
 //convenient wrapper
 struct WasmString
@@ -126,6 +135,7 @@ struct WasmString
         index = std::hash<std::string_view>{}(str_view);
         str_map.try_emplace(index, str_view);
     }
+    WasmString(SSI index) : index(index) {}
     ~WasmString()
     {
         delete_string(index);
