@@ -47,7 +47,7 @@ pub fn print_fmt(args: std::fmt::Arguments) {
 }
 
 /// reads a line from console
-pub fn read_line() -> String {
+pub fn read_line() -> Result<String, std::string::FromUtf8Error> {
     read_line_ssi().as_string()
 }
 
