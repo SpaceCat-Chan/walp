@@ -2,19 +2,20 @@
 #include <cinttypes>
 #define WALP false //toggle to false for testing, true for compiling for WALP
 
-using SSI = int32_t;
+using SSI = uint32_t;
 
 #if WALP
 extern "C"
 {
 
-    void print(const char *str_ptr, int32_t size);
+    void print(const char *str_ptr, uint32_t size);
     double math_random();
-    double tonumber(const char *str_ptr, int32_t size);
+    double tonumber(const char *str_ptr, uint32_t size);
     SSI tostring(double number);
-    int32_t get_string_len(SSI str_idx);
-    bool write_string_to_ptr(SSI str_idx, char *str, int32_t size);
-    void delete_string(SSI str_idx)
+    uint32_t get_string_len(SSI str_idx);
+    bool write_string_to_ptr(SSI str_idx, char *str, uint32_t size);
+    void delete_string(SSI str_idx);
+    SSI read_line();
 }
 #else
 #include <cstdio>
@@ -24,6 +25,7 @@ extern "C"
 #include <stdlib.h>
 #include <string>
 #include <cassert>
+#include <iostream>
 
 static std::unordered_map<SSI, std::string> str_map;
 
@@ -67,7 +69,10 @@ bool write_string_to_ptr(SSI str_idx, char *str, int32_t size)
     auto str_ref = str_map.find(str_idx);
     if (str_ref != str_map.end())
     {
-        str_ref->second = std::string_view(str, size);
+        for (size_t i = 0; i < size; ++i)
+        {
+            str[i] = str_ref->second[i];
+        }
         return true;
     }
     return false;
@@ -89,6 +94,14 @@ void print_ssi(SSI str_idx)
     printf("%.*s", str_ref.size(), str_ref.data());
 }
 
+SSI read_line()
+{
+    std::string str;
+    std::cin >> str;
+    SSI res = std::hash<std::string>{}(str);
+    str_map.try_emplace(res, std::move(str));
+    return res;
+}
 #endif
 
 //convenient wrapper
