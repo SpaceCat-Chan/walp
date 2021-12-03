@@ -10,6 +10,7 @@ pub mod raw {
         pub fn delete_string(string: SSI);
         pub fn store_string(ptr: *const u8, len: usize) -> SSI;
         pub fn print_ssi(string: SSI);
+        pub fn read_line() -> SSI;
     }
 }
 
@@ -37,6 +38,10 @@ pub fn tostring_ssi(num: f64) -> SSI {
 
 pub fn print_fmt(args: std::fmt::Arguments) {
     print(&std::fmt::format(args))
+}
+
+pub fn read_line() -> SSI {
+    return unsafe { SSI::from_index(raw::read_line()) };
 }
 
 #[macro_export]

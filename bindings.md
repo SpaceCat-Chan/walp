@@ -11,6 +11,17 @@ current languages:
 languages todo:
  - currently none
 
+## importing on the lua side
+all you have to do is require or somehow load the `lua_impl.lua` file,  
+and then use the returned function before instantiation, which has the below decleration  
+```
+(module, namespace, memory) => lua_interface
+```
+the functions takes the module, a namespace, and a memory module  
+the namespace and memory module are optional  
+the namespace defaults to `env` and the memory module defaults to one exported by the module named `memory`  
+it also returns an interface that can be used to upload SSI strings that can then be loaded into wasm using the interface provided below, full docs are further below
+
 ## types
 
 all types used below are in WASM/Rust syntax, so the only ones that exist are  
@@ -52,7 +63,7 @@ returns the length of the string, or 0xFFFFFFFF if it doesn't exist (-1 in signe
 &nbsp;  
 `write_string_to_ptr(string: SSI, ptr: i32, len: 32) -> bool`  
 writes the string to the pointer without null termination.  
-if the string doesn't exist, nothing is written and false is returned else true is returned.
+if the string doesn't exist, nothing is written and false is returned, else true is returned.
 
 &nbsp;  
 `delete_string(string: SSI)`   
@@ -66,3 +77,16 @@ stores a string into an SSI
 &nbsp;  
 `print_ssi(string: SSI)`  
 prints a string stored in an SSI
+
+&nbsp;  
+`read_line() -> SSI`  
+reads a line from stdin and returns it, includes the newline character
+
+&nbsp;
+## lua interface
+`create_ssi_string(s: string) -> SSI`  
+uploads an SSI from lua
+
+&nbsp;  
+`load_ssi_string(s: SSI) -> string/nil`  
+returns the string for the SSI if it exists
