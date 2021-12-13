@@ -1094,6 +1094,11 @@ local instructions = {
             })
         end
     end,
+    [0x94] = function(ins, stack, frame) -- (f32/f64).mul
+        local n1 = pop(stack)
+        local n2 = pop(stack)
+        push(stack, n1 * n2)
+    end,
     [0xA7] = function(ins, stack, frame) -- i32.wrap_i64
         push(stack, pop(stack).l)
     end,
@@ -1104,6 +1109,11 @@ local instructions = {
     [0xAD] = function(ins, stack, frame) -- i64.extend_i32_u
         local n = pop(stack)
         push(stack, {l = n, h = 0})
+    end,
+    [0xB5] = function(ins, stack, frame) -- (f32/f64).convert_i64_u
+        local n = pop(stack)
+        local res = n.h * 4294967296 + n.l
+        push(stack, res)
     end,
     [0xBC] = function(ins, stack, frame) -- i32.reinterpret_f32
         local n = pop(stack)

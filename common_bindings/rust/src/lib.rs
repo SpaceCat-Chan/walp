@@ -14,7 +14,7 @@ pub mod raw {
     }
 }
 
-#[cfg(not(target = "wasm32-unkown-unknown"))]
+#[cfg(not(target_family = "wasm"))]
 mod impls;
 
 /// prints a string to the console, does not append a newline
