@@ -297,6 +297,21 @@ local function __CTZ__(x)
     return __ctz_tab[ bit.rshift( bit.band(x,-x) * 125613361 , 27 ) ]
 end
 
+local __popcnt_tab = {
+    1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,
+  1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,
+  1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,
+  2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8
+}
+__popcnt_tab[0] = 0
+
+local function __POPCNT__(x)
+  -- the really cool algorithm uses a multiply that can overflow, so we're stuck with a LUT
+  return __popcnt_tab[bit.band(x,255)]
+  + __popcnt_tab[bit.band(bit.rshift(x,8),255)]
+  + __popcnt_tab[bit.band(bit.rshift(x,16),255)]
+  + __popcnt_tab[bit.rshift(x,24)]
+end
 
 local instructions = {
     -- CONTROL INSTRUCTIONS ---------------------
@@ -890,6 +905,10 @@ local instructions = {
         local n = pop(stack)
         push(stack, __CTZ__(n))
     end,
+    [0x69] = function(ins, stack, frame) -- i32.popcnt
+        local n = pop(stack)
+        push(stack, __POPCNT__(n))
+    end,
     [0x6A] = function(ins, stack, frame) -- i32.add
         local n2 = pop(stack)
         local n1 = pop(stack)
@@ -1091,6 +1110,33 @@ local instructions = {
             push(stack, {
                 l = bit.rshift(n1.h, n2-32),
                 h = 0
+            })
+        end
+    end,
+    [0x89] = function(ins, stack, frame) -- i64.rotl
+        local n2 = pop(stack).l % 64
+        local n1 = pop(stack)
+        if n2 == 0 then
+            push(stack, n1)
+        elseif n2 < 32 then
+            local l = bit.bor(bit.lshift(n1.h,32-n2), bit.rshift(n1.l, n2))
+            local h = bit.bor(bit.lshift(n1.l,32-n2), bit.rshift(n1.h, n2))
+            push(stack, {
+                l = l,
+                h = h,
+            })
+        elseif n2 == 32 then
+            push(stack, {
+                l = n1.h,
+                h = n1.l,
+            })
+        else
+            n2 = n2 - 32
+            local l = bit.bor(bit.lshift(n1.h,32-n2), bit.rshift(n1.l, n2))
+            local h = bit.bor(bit.lshift(n1.l,32-n2), bit.rshift(n1.h, n2))
+            push(stack, {
+                l = h,
+                h = l,
             })
         end
     end,
