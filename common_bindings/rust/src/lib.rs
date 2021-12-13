@@ -13,6 +13,9 @@ pub mod raw {
     }
 }
 
+#[cfg(not(target = "wasm32-unkown-unknown"))]
+mod impls;
+
 pub fn print(string: &str) {
     unsafe {
         raw::print(string.as_ptr(), string.len());
