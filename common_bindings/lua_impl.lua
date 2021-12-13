@@ -60,4 +60,19 @@ return function(module, alt_name, memory)
         if string_table[index] == nil then return end
         io.write(string_table[index])
     end
+    module.IMPORTS[alt_name].read_line = function()
+        local string = io.read("L")
+        table.insert(string_table, string)
+        return #string_table
+    end
+    return {
+        create_ssi_string = function(string)
+            table.insert(string_table, string)
+            return #string_table
+        end,
+
+        load_ssi_string = function(ssi)
+            return string_table[ssi]
+        end,
+    }
 end

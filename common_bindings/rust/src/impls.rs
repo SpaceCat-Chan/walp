@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap};
+use std::{borrow::BorrowMut, cell::RefCell, collections::HashMap};
 
 type SSI = u32;
 #[no_mangle]
@@ -89,6 +89,19 @@ pub extern "C" fn print_ssi(string: SSI) {
             .get(&string)
             .iter()
             .for_each(|s| print!("{}", s))
+    })
+}
+#[no_mangle]
+pub extern "C" fn read_line() -> SSI {
+    STRING_STORE.with(|ssi| {
+        NEXT_SSI.with(|ni| {
+            let mut s = String::new();
+            let _ = std::io::stdin().read_line(&mut s);
+            let mut ni = ni.borrow_mut();
+            ssi.borrow_mut().insert(*ni, s);
+            *ni += 1;
+            *ni - 1
+        })
     })
 }
 #[no_mangle]

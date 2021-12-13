@@ -785,6 +785,35 @@ local instructions = {
             push(stack, 0)
         end
     end,
+    [0x53] = function(ins, stack, frame) -- i64.lt_s
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        local n1_is_neg = bit.rshift(n1.h, 31) == 1
+        local n2_is_neg = bit.rshift(n1.h, 31) == 1
+        if n1_is_neg and not n2_is_neg then
+            push(stack, 1)
+        elseif not n1_is_neg and n2_is_neg then
+            push(stack, 0)
+        else
+            local t,n = 1,0
+            if n1_is_neg then
+                t,n = n,t
+            end
+            if n1.h < n2.h then
+                push(stack, t)
+            elseif n1.h == n2.h then
+                if n1.l < n2.l then
+                    push(stack, t)
+                elseif n1.l == n2.l then
+                    push(stack, 0)
+                else
+                    push(stack, n)
+                end
+            else
+                push(stack, n)
+            end
+        end
+    end,
     [0x54] = function(ins, stack, frame) -- i64.lt_u
         local n2 = pop(stack)
         local n1 = pop(stack)
@@ -809,6 +838,35 @@ local instructions = {
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, i64_le_u(n1,n2))
+    end,
+    [0x59] = function(ins, stack, frame) -- i64.ge_s
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        local n1_is_neg = bit.rshift(n1.h, 31) == 1
+        local n2_is_neg = bit.rshift(n1.h, 31) == 1
+        if n1_is_neg and not n2_is_neg then
+            push(stack, 0)
+        elseif not n1_is_neg and n2_is_neg then
+            push(stack, 1)
+        else
+            local t,f = 1,0
+            if n1_is_neg then
+                t,f = f,t
+            end
+            if n1.h < n2.h then
+                push(stack, f)
+            elseif n1.h == n2.h then
+                if n1.l < n2.l then
+                    push(stack, f)
+                elseif n1.l == n2.l then
+                    push(stack, 1)
+                else
+                    push(stack, t)
+                end
+            else
+                push(stack, t)
+            end
+        end
     end,
     [0x5A] = function(ins, stack, frame) -- i64.ge_u
         local n2 = pop(stack)
@@ -866,6 +924,14 @@ local instructions = {
             error("trap, i32.div_s div by 0")
         end
         push(stack, math.floor(n1 / n2))
+    end,
+    [0x6F] = function(ins, stack, frame) -- i32.rem_s
+        local n2 = signed(32, pop(stack))
+        local n1 = signed(32, pop(stack))
+        if n2 == 0 then
+            error("trap, i32.rem_u div by zero")
+        end
+        push(stack, inv_signed(32, n1 - n2 * trunc(n1/n2)))
     end,
     [0x70] = function(ins, stack, frame) -- i32.rem_u
         local n2 = pop(stack)
@@ -1030,6 +1096,10 @@ local instructions = {
     end,
     [0xA7] = function(ins, stack, frame) -- i32.wrap_i64
         push(stack, pop(stack).l)
+    end,
+    [0xAC] = function(ins, stack, frame) -- i64.extend_i32_s
+        local n = pop(stack)
+        push(stack, {l = n, h = bit.arshift(n, 31)})
     end,
     [0xAD] = function(ins, stack, frame) -- i64.extend_i32_u
         local n = pop(stack)
