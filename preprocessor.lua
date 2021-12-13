@@ -120,6 +120,59 @@ local function transform_ports(ports)
     end
 end
 
+local function flatten_single_block(block)
+    local new_block = {}
+    local pos = 1
+    for _,ins in ipairs(block) do
+        if ins[1] == 0x02 or ins[1] == 0x03 then
+            new_block[pos] = {ins[1], ins[2]}
+            local orig_pos = pos
+            local new_ins = flatten_single_block(ins[3])
+            for _,new in ipairs(new_ins) do
+                pos = pos + 1
+                new_block[pos] = new
+            end
+            pos = pos + 1
+            new_block[pos] = {ins[4]}
+            new_block[orig_pos][3] = pos - orig_pos
+        elseif ins[1] == 0x04 then
+            new_block[pos] = {ins[1], ins[2]}
+            local orig_pos = pos
+            local new_ins = flatten_single_block(ins[3])
+            for _,new in ipairs(new_ins) do
+                pos = pos + 1
+                new_block[pos] = new
+            end
+            pos = pos + 1
+            new_block[pos] = {ins[4]}
+            new_block[orig_pos][3] = pos - orig_pos
+            new_block[orig_pos][4] = pos - orig_pos
+            if ins[4] == 0x05 then
+                local new_ins = flatten_single_block(ins[5])
+                for _,new in ipairs(new_ins) do
+                    pos = pos + 1
+                    new_block[pos] = new
+                end
+                pos = pos + 1
+                new_block[pos] = {ins[6]}
+                new_block[orig_pos][3] = pos - orig_pos
+            end
+        else
+            new_block[pos] = ins
+        end
+        pos = pos + 1
+    end
+    return new_block
+end
+
+local function flatten_blocks(funcs)
+    for _,func in pairs(funcs) do
+        local new_body = flatten_single_block(func.body[1])
+        table.insert(new_body, {func.body[2]})
+        func.body = new_body
+    end
+end
+
 local function module(mod)
     --[[
         step 1
@@ -143,6 +196,7 @@ local function module(mod)
             mod[name] = mod[name] or {}
         end
     end
+    flatten_blocks(mod.funcs)
     transform_globals(mod.globals)
     transform_datas(mod.datas)
     if mod.start then
