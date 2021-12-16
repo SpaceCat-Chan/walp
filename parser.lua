@@ -389,11 +389,13 @@ local expr = tuple(many0(instr), take(0x0B))
 
 local function custom_section(size)
     return function(inseq, ptr)
+        local old_ptr = ptr
         local name, ptr = name(inseq, ptr)
         if name == nil then
             return nil
         end
-        local bytes, ptr = repeat_n(size-name:len(), byte)(inseq, ptr)
+
+        local bytes, ptr = repeat_n(size - (ptr - old_ptr), byte)(inseq, ptr)
         if bytes == nil then
             return nil
         else
@@ -538,6 +540,7 @@ local section_table = {
 
 local function section(inseq, ptr)
     local id, ptr = within(byte, 0, 12)(inseq, ptr)
+    print("section id: ", id)
     if id == nil then
         return nil
     end

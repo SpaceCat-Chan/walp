@@ -158,6 +158,8 @@ local function fill_exports(module)
 end
 
 local function instantiate(module)
+    eval.pre_lookup_instructions(module)
+
     check_imports(module)
     create_store(module)
     eval.fill_elems(module)

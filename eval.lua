@@ -90,8 +90,19 @@ local eval_single_with, eval_instructions_with
 
 local extra_instructions
 
+local function update_frame_cache(frames, cache)
+    local new_frame = top(frames)
+    if new_frame then
+        for old,_ in pairs(cache) do
+            cache[old] = nil
+        end
+        for new,v in pairs(new_frame) do
+            cache[new] = v
+        end
+    end
+end
 
-local function invoke(addr, stack, frame, labels, module)
+local function invoke(addr, stack, frame, labels, module, frame_cache)
 	local new_f = module.store.funcs[addr+1]
 
 	local arg_count = #new_f.type.from
@@ -119,6 +130,7 @@ local function invoke(addr, stack, frame, labels, module)
 	local new_frame = {func = new_f.code, func_addr=addr, locals = args, type=new_f.type, ins_ptr = 0, stack_height = #stack, label_height = #labels}
 	push(frame, new_frame)
     push(labels, {type = new_f.type, is_function = true, stack_height = #stack})
+    return true
     --[[ from before de-recursion
 	local r, p = eval_instructions_with(new_f.code.body, stack, new_frame, labels)
 	pop(labels)
@@ -328,8 +340,8 @@ instructions = {
     end,
     [0x01] = function(ins, stack, frame) -- noop
     end,
-    [0x02] = function(ins, stack, frame, labels) -- block,  br skips
-        local new_label = expand_type(ins[2], top(frame).module)
+    [0x02] = function(ins, stack, frame, labels, module) -- block,  br skips
+        local new_label = expand_type(ins[2], module)
         push(labels, {type = new_label, break_pos = top(frame).ins_ptr + ins[3], stack_height = #stack})
         --[[ old stuff from before de-recursion was done
         local r, p = eval_instructions_with(ins[3], stack, frame, labels)
@@ -349,9 +361,9 @@ instructions = {
             end
         end]]
     end,
-    [0x03] = function(ins, stack, frame, labels) -- loop
+    [0x03] = function(ins, stack, frame, labels, module) -- loop
         -- br loops again
-        local new_label = expand_type(ins[2], top(frame).module)
+        local new_label = expand_type(ins[2], module)
         push(labels, {type = new_label, break_pos = top(frame).ins_ptr+1, stack_height = #stack})
         --[[ old stuff from before de-recursion was done
         local r, p = eval_instructions_with(ins[3], stack, frame, labels)
@@ -373,8 +385,8 @@ instructions = {
             break
         end]]
     end,
-    [0x04] = function(ins, stack, frame, labels) -- if else
-        local new_label = expand_type(ins, frame.module)
+    [0x04] = function(ins, stack, frame, labels, module) -- if else
+        local new_label = expand_type(ins, module)
         local c = pop(stack)
         push(labels, {type = new_label, break_pos = top(frame).ins_ptr + ins[3], stack_height = #stack})
         if c == 0 then
@@ -410,12 +422,13 @@ instructions = {
         local label = pop(labels)
         if label.is_function then
             pop(frame)
+            return true
         end
     end,
-    [0x0C] = function(ins, stack, frame, labels) -- br
+    [0x0C] = function(ins, stack, frame, labels, module, frame_cache) -- br
         local label = labels[#labels-ins[2]]
         if label.is_function then
-            return instructions[0x0F](ins, stack, frame, label)
+            return instructions[0x0F](ins, stack, frame, label, frame_cache)
         end
         local pop_count = #label.type.to
         local p = {}
@@ -432,43 +445,44 @@ instructions = {
             pop(labels)
         end
         push(labels, label)
-        top(frame).ins_ptr = label.break_pos - 1
+        frame_cache.ins_ptr = label.break_pos - 1
     end,
-    [0x0D] = function(ins, stack, frame, labels) -- br_if
+    [0x0D] = function(ins, stack, frame, labels, module, frame_cache) -- br_if
         local c = pop(stack)
         if c ~= 0 then
-            instructions[0x0C]({0x0C, ins[2]}, stack, frame, labels)
+            return instructions[0x0C]({0x0C, ins[2]}, stack, frame, labels, module, frame_cache)
         end
     end,
-    [0x0E] = function(ins, stack, frame, labels) -- br_table
+    [0x0E] = function(ins, stack, frame, labels, module, frame_cache) -- br_table
         local i = pop(stack)
         if i+1 <= #ins[2] then
-            instructions[0x0C]({0x0C, ins[2][i+1]}, stack, frame, labels)
+            return instructions[0x0C]({0x0C, ins[2][i+1]}, stack, frame, labels, module, frame_cache)
         else
-            instructions[0x0C]({0x0C, ins[3]}, stack, frame, labels)
+            return instructions[0x0C]({0x0C, ins[3]}, stack, frame, labels, module, frame_cache)
         end
     end,
-    [0x0F] = function(ins, stack, frame, labels) -- return
-        local pop_count = #top(frame).type.to
+    [0x0F] = function(ins, stack, frame, labels, module, frame_cache) -- return
+        local pop_count = #frame_cache.type.to
         local p = {}
         for x=pop_count,1,-1 do
             p[x] = pop(stack)
         end
-        while #stack ~= top(frame).stack_height do
+        while #stack ~= frame_cache.stack_height do
             pop(stack)
         end
-        while #labels ~= top(frame).label_height do
+        while #labels ~= frame_cache.label_height do
             pop(labels)
         end
         pop(frame)
         for x=1,pop_count do
             push(stack, p[x])
         end
+        return true
     end,
-    [0x10] = function(ins, stack, frame, labels, module) -- call
-        return invoke(ins[2], stack, frame, labels, module)
+    [0x10] = function(ins, stack, frame, labels, module, frame_cache) -- call
+        return invoke(ins[2], stack, frame, labels, module, frame_cache)
     end,
-    [0x11] = function(ins, stack, frame, labels, module) -- call_indirect
+    [0x11] = function(ins, stack, frame, labels, module, frame_cache) -- call_indirect
         local tab = module.store.tables[ins[3]+1]
         local ft_expect = module.types[ins[2]+1]
         local i = pop(stack)
@@ -496,7 +510,7 @@ instructions = {
                 error("trap")
             end
         end
-        return invoke(r, stack, frame, labels, module)
+        return invoke(r, stack, frame, labels, module, frame_cache)
     end,
     -- REFERENCE INSTRUCTIONS -----------------------
     [0xD0] = function(ins, stack, frame) -- ref.null
@@ -532,14 +546,14 @@ instructions = {
         end
     end,
     -- VARIABLE INSTRUCTIONS -------------------------
-    [0x20] = function(ins, stack, frame) -- local.get
-        push(stack, top(frame).locals[ins[2]+1])
+    [0x20] = function(ins, stack, frame, labels, module, frame_cache) -- local.get
+        push(stack, frame_cache.locals[ins[2]+1])
     end,
-    [0x21] = function(ins, stack, frame) -- local.set
-        top(frame).locals[ins[2]+1] = pop(stack)
+    [0x21] = function(ins, stack, frame, labels, module, frame_cache) -- local.set
+        frame_cache.locals[ins[2]+1] = pop(stack)
     end,
-    [0x22] = function(ins, stack, frame) -- local.tee
-        top(frame).locals[ins[2]+1] = stack[#stack]
+    [0x22] = function(ins, stack, frame, labels, module, frame_cache) -- local.tee
+        frame_cache.locals[ins[2]+1] = stack[#stack]
     end,
     [0x23] = function(ins, stack, frame, labels, module) -- global.get
         push(stack, module.store.globals[ins[2]+1].val)
@@ -1212,12 +1226,12 @@ instructions = {
         })
     end,
     -- EXTRA INSTRUCTIONS ----------------------------
-    [0xFC] = function(ins, stack, frame, labels, module)
+    [0xFC] = function(ins, stack, frame, labels, module, frame_cache)
         local ei = extra_instructions[ins[2]]
         if ei == nil then
             error("missing instruction for 0xFC "..tostring(ins[2]))
         end
-        ei(ins, stack, frame, labels, module)
+        ei(ins, stack, frame, labels, module, frame_cache)
     end
 }
 instructions[0x1C] = instructions[0x1B]
@@ -1240,8 +1254,8 @@ extra_instructions = {
     [8] = function(ins, stack, frame, labels, module) -- memory.init
         local y = ins[3]
         local x = ins[4]
-        local mem = top(frame).module.store.mems[x+1]
-        local da = top(frame).module.store.datas[y+1]
+        local mem = module.store.mems[x+1]
+        local da = module.store.datas[y+1]
         local n = pop(stack)
         local s = pop(stack)
         local d = pop(stack)
@@ -1261,12 +1275,12 @@ extra_instructions = {
             n = n - 1
         end
     end,
-    [9] = function(ins, stack, frame) -- data.drop
+    [9] = function(ins, stack, frame, labels, module) -- data.drop
         local x = ins[3]
-        top(frame).module.store.datas[x+1] = {data = {}}
+        module.store.datas[x+1] = {data = {}}
     end,
     [10] = function(ins, stack, frame, labels) -- memory.copy
-        local mem = top(frame).module.store.mems[1] -- cant tell which arg is to and which is from
+        local mem = module.store.mems[1] -- cant tell which arg is to and which is from
         local n = pop(stack)
         local s = pop(stack)
         local d = pop(stack)
@@ -1290,8 +1304,8 @@ extra_instructions = {
             n = n - 1
         end
     end,
-    [11] = function(ins, stack, frame, labels) -- memory.fill
-        local mem = top(frame).module.store.mems[ins[3]+1]
+    [11] = function(ins, stack, frame, labels, module) -- memory.fill
+        local mem = module.store.mems[ins[3]+1]
         local n = pop(stack)
         local val = pop(stack)
         local d = pop(stack)
@@ -1330,13 +1344,13 @@ extra_instructions = {
             n = n - 1
         end
     end,
-    [13] = function(ins, stack, frame) -- elem.drop
+    [13] = function(ins, stack, frame, labels, module) -- elem.drop
         local x = ins[3]
-        top(frame).module.store.elems[x+1] = {elem = {}, type=top(frame).module.store.elems[x+1].type}
+        module.store.elems[x+1] = {elem = {}, type=module.store.elems[x+1].type}
     end,
     [14] = function(ins, stack, frame, labels) -- table.copy
-        local tab_x = top(frame).module.store.tables[ins[3]+1]
-        local tab_y = top(frame).module.store.tables[ins[4]+1]
+        local tab_x = module.store.tables[ins[3]+1]
+        local tab_y = module.store.tables[ins[4]+1]
         local n = pop(stack)
         local s = pop(stack)
         local d = pop(stack)
@@ -1360,8 +1374,8 @@ extra_instructions = {
             n = n + 1
         end
     end,
-    [15] = function(ins, stack, frame) -- table.grow
-        local tab = top(frame).module.store.tables[ins[3] + 1]
+    [15] = function(ins, stack, frame, labels, module) -- table.grow
+        local tab = module.store.tables[ins[3] + 1]
         local n = pop(stack)
         local val = pop(stack)
         if tab.type.max and #tab.elem + n > tab.type.max then
@@ -1374,11 +1388,11 @@ extra_instructions = {
             push(stack, start_size)
         end
     end,
-    [16] = function(ins, stack, frame) -- table.size
-        push(stack, #top(frame).module.store.tables[ins[3]+1].elem)
+    [16] = function(ins, stack, frame, labels, module) -- table.size
+        push(stack, module.store.tables[ins[3]+1].elem)
     end,
-    [17] = function(ins, stack, frame, labels) -- table.fill
-        local tab = top(frame).module.store.tables[ins[3]+1]
+    [17] = function(ins, stack, frame, labels, module) -- table.fill
+        local tab = module.store.tables[ins[3]+1]
         local n = pop(stack)
         local val = pop(stack)
         local i = pop(stack)
@@ -1453,25 +1467,37 @@ local function full_eval(module, funcaddr, opt_start_stack)
     local stack = opt_start_stack or {}
     local frames = {{module = module, func_addr = "root"}}
     local labels = {}
-    invoke(funcaddr, stack, frames, labels, module)
-    top(frames).ins_ptr = top(frames).ins_ptr + 1
+    local current_frame_cache = top(frames)
+    invoke(funcaddr, stack, frames, labels, module, current_frame_cache)
+    current_frame_cache = top(frames)
+    current_frame_cache.ins_ptr = current_frame_cache.ins_ptr + 1
     while true do
-        local ins = top(frames).func.body[top(frames).ins_ptr]
-        local ins_func = instructions[ins[1]]
-        if ins_func == nil then
-            -- do error stuff here
-            local error = string.format("missing instruction 0x%x", ins[1])
-            raise_error(error, stack, frames, labels)
-            return nil, -1, error
+        local ins = current_frame_cache.func.body[current_frame_cache.ins_ptr]
+        local ins_func = ins[0]
+        local error = ins_func(ins, stack, frames, labels, module, current_frame_cache)
+        if error == true then
+            current_frame_cache = top(frames)
+            error = nil
         end
-        local error = ins_func(ins, stack, frames, labels, module)
         if frames[2] == nil then
             return stack
         end
-        top(frames).ins_ptr = top(frames).ins_ptr + 1
+        current_frame_cache.ins_ptr = current_frame_cache.ins_ptr + 1
         if error then
             raise_error(error, stack, frames, labels)
             return nil, -2, error
+        end
+    end
+end
+
+local function pre_lookup_instructions(module)
+    for _,func in pairs(module.funcs) do
+        for _,ins in pairs(func.body) do
+            local li = instructions[ins[1]]
+            if li == nil then
+                error("missing instruction 0x%x", ins[1])
+            end
+            ins[0] = li
         end
     end
 end
@@ -1583,4 +1609,5 @@ return {
     call_function = call_function,
     make_memory_interface = make_memory_interface,
     full_eval = full_eval,
+    pre_lookup_instructions = pre_lookup_instructions,
 }
