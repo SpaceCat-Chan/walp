@@ -1,0 +1,12 @@
+[package]
+name = "debug_parser"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nom = "7.1.0"
+ouroboros = "0.14.0"
+walp_rs = {path = "../common_bindings/rust/"}

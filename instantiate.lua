@@ -138,7 +138,7 @@ local function fill_exports(module)
         local interface_export = module.EXPORTS[export.name]
         if export.desc.func then
             interface_export.call = function(...)
-                eval.call_function(module, export.desc.func, {...})
+                return eval.call_function(module, export.desc.func, {...})
             end
         elseif export.desc.mem then
             eval.make_memory_interface(module, export.desc.mem, interface_export)

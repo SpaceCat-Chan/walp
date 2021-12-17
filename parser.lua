@@ -540,7 +540,6 @@ local section_table = {
 
 local function section(inseq, ptr)
     local id, ptr = within(byte, 0, 12)(inseq, ptr)
-    print("section id: ", id)
     if id == nil then
         return nil
     end

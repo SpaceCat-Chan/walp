@@ -85,6 +85,10 @@ impl SSI {
         SSI { index }
     }
 
+    pub fn get_index(&self) -> u32 {
+        self.index
+    }
+
     /// creates an SSI object from a string
     pub fn from_string(s: &str) -> SSI {
         Self {
@@ -103,6 +107,7 @@ impl SSI {
 
         let mut vec = Vec::with_capacity(len);
         unsafe { raw::write_string_to_ptr(self.index, vec.as_mut_ptr(), len) };
+        unsafe { vec.set_len(len) };
         vec
     }
 

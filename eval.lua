@@ -90,18 +90,6 @@ local eval_single_with, eval_instructions_with
 
 local extra_instructions
 
-local function update_frame_cache(frames, cache)
-    local new_frame = top(frames)
-    if new_frame then
-        for old,_ in pairs(cache) do
-            cache[old] = nil
-        end
-        for new,v in pairs(new_frame) do
-            cache[new] = v
-        end
-    end
-end
-
 local function invoke(addr, stack, frame, labels, module, frame_cache)
 	local new_f = module.store.funcs[addr+1]
 
@@ -896,6 +884,35 @@ instructions = {
             push(stack, 0)
         end
     end,
+    [0x55] = function(ins, stack, frame) -- i64.gt_s
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        local n1_is_neg = bit.rshift(n1.h, 31) == 1
+        local n2_is_neg = bit.rshift(n1.h, 31) == 1
+        if n1_is_neg and not n2_is_neg then
+            push(stack, 0)
+        elseif not n1_is_neg and n2_is_neg then
+            push(stack, 1)
+        else
+            local t,n = 0,1
+            if n1_is_neg then
+                t,n = n,t
+            end
+            if n1.h < n2.h then
+                push(stack, t)
+            elseif n1.h == n2.h then
+                if n1.l < n2.l then
+                    push(stack, t)
+                elseif n1.l == n2.l then
+                    push(stack, 0)
+                else
+                    push(stack, n)
+                end
+            else
+                push(stack, n)
+            end
+        end
+    end,
     [0x56] = function(ins, stack, frame) -- i64.gt_u
         local n2 = pop(stack)
         local n1 = pop(stack)
@@ -1456,10 +1473,22 @@ local function find_func_name(func_addr, module)
     return "???"
 end
 
-local function raise_error(err, stack, frames, labels)
+local debug_module
+
+local function set_debug_module(module)
+    debug_module = module
+end
+
+local function raise_error(err, stack, frames, labels, module)
     io.write("trap: ", err, "\nStacktrace:\n")
     for x=#frames,1,-1 do
-        io.write("$", x, " = func_addr ", frames[x].func_addr, " named ", find_func_name(frames[x].func_addr, frames[x].module), "\n")
+        local name = "???"
+        if frames[x].func_addr == "root" then
+            name = "(lua code)"
+        elseif debug_module and module.debug_info then
+            name = debug_module.get_function_name(module.debug_info, frames[x].func_addr) or "???"
+        end
+        io.write("$", x, " = func_addr ", frames[x].func_addr, " named ", name, "\n")
     end
 end
 
@@ -1484,7 +1513,7 @@ local function full_eval(module, funcaddr, opt_start_stack)
         end
         current_frame_cache.ins_ptr = current_frame_cache.ins_ptr + 1
         if error then
-            raise_error(error, stack, frames, labels)
+            raise_error(error, stack, frames, labels, module)
             return nil, -2, error
         end
     end
@@ -1495,7 +1524,7 @@ local function pre_lookup_instructions(module)
         for _,ins in pairs(func.body) do
             local li = instructions[ins[1]]
             if li == nil then
-                error("missing instruction 0x%x", ins[1])
+                error(string.format("missing instruction 0x%x", ins[1]))
             end
             ins[0] = li
         end
@@ -1565,19 +1594,19 @@ local function make_memory_interface(module, memidx, interface_export)
         return stack[1]
     end
     function interface_export.write8(address, value)
-        local stack = {value, address}
+        local stack = {address, value}
         eval_single_with({0x3A, {0,0}}, stack, {{module = module}}, {}, module)
     end
     function interface_export.write16(address, value)
-        local stack = {value, address}
+        local stack = {address, value}
         eval_single_with({0x3B, {0,0}}, stack, {{module = module}}, {}, module)
     end
     function interface_export.write32(address, value)
-        local stack = {value, address}
+        local stack = {address, value}
         eval_single_with({0x36, {0,0}}, stack, {{module = module}}, {}, module)
     end
     function interface_export.write64(address, value)
-        local stack = {value, address}
+        local stack = {address, value}
         eval_single_with({0x37, {0,0}}, stack, {{module = module}}, {}, module)
     end
     function interface_export.readf32(address)
@@ -1591,11 +1620,11 @@ local function make_memory_interface(module, memidx, interface_export)
         return stack[1]
     end
     function interface_export.writef32(address, value)
-        local stack = {value, address}
+        local stack = {address, value}
         eval_single_with({0x38, {0,0}}, stack, {{module = module}}, {}, module)
     end
     function interface_export.writef64(address, value)
-        local stack = {value, address}
+        local stack = {address, value}
         eval_single_with({0x39, {0,0}}, stack, {{module = module}}, {}, module)
     end
 end
@@ -1610,4 +1639,5 @@ return {
     make_memory_interface = make_memory_interface,
     full_eval = full_eval,
     pre_lookup_instructions = pre_lookup_instructions,
+    set_debug_module = set_debug_module,
 }
