@@ -64,9 +64,7 @@ parse = function(filename, parse_debug_info)
         if debug_info_module then
             parsed[3].debug_info = debug_info_module.EXPORTS.ready_new_module.call()
             debug_info_module.add_module(parsed[3].debug_info, parsed[3])
-            print("b")
             local parse_result = debug_info_module.EXPORTS.parse_module.call(parsed[3].debug_info)
-            print("a")
             if parse_result == 0 then
                 print("walp error: failed to load debug info for module")
             end
