@@ -865,7 +865,7 @@ instructions = {
         local n2 = pop(stack)
         local n1 = pop(stack)
         local n1_is_neg = bit.rshift(n1.h, 31) == 1
-        local n2_is_neg = bit.rshift(n1.h, 31) == 1
+        local n2_is_neg = bit.rshift(n2.h, 31) == 1
         if n1_is_neg and not n2_is_neg then
             push(stack, 1)
         elseif not n1_is_neg and n2_is_neg then
@@ -909,7 +909,7 @@ instructions = {
         local n2 = pop(stack)
         local n1 = pop(stack)
         local n1_is_neg = bit.rshift(n1.h, 31) == 1
-        local n2_is_neg = bit.rshift(n1.h, 31) == 1
+        local n2_is_neg = bit.rshift(n2.h, 31) == 1
         if n1_is_neg and not n2_is_neg then
             push(stack, 0)
         elseif not n1_is_neg and n2_is_neg then
@@ -943,7 +943,7 @@ instructions = {
         local n2 = pop(stack)
         local n1 = pop(stack)
         local n1_is_neg = bit.rshift(n1.h, 31) == 1
-        local n2_is_neg = bit.rshift(n1.h, 31) == 1
+        local n2_is_neg = bit.rshift(n2.h, 31) == 1
         if n1_is_neg and not n2_is_neg then
             push(stack, 1)
         elseif not n1_is_neg and n2_is_neg then
@@ -977,7 +977,7 @@ instructions = {
         local n2 = pop(stack)
         local n1 = pop(stack)
         local n1_is_neg = bit.rshift(n1.h, 31) == 1
-        local n2_is_neg = bit.rshift(n1.h, 31) == 1
+        local n2_is_neg = bit.rshift(n2.h, 31) == 1
         if n1_is_neg and not n2_is_neg then
             push(stack, 0)
         elseif not n1_is_neg and n2_is_neg then
