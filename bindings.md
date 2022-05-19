@@ -88,5 +88,13 @@ reads a line from stdin and returns it, includes the newline character
 uploads an SSI from lua
 
 &nbsp;  
+`create_ssi_vec(s: array<u8>) -> SSI`  
+uploads an SSI from lua using a raw byte vector
+
+&nbsp;  
 `load_ssi_string(s: SSI) -> string/nil`  
 returns the string for the SSI if it exists
+
+&nbsp;  
+`load_ssi_vec(s: SSI) -> attay<u8>/nil`  
+returns the raw byte vector for the SSI if it exists
