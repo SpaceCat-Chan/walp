@@ -18,7 +18,11 @@ local instantiate = require(require_path .. "instantiate")
 local eval = require(require_path .. "eval")
 
 local function load_debug_parser()
-    local module = parse(WALP_DEBUG_PARSE_MODULE_FILEPATH or "debug_parser/target/wasm32-unknown-unknown/release/debug_parser.wasm")
+    local module, err = parse(WALP_DEBUG_PARSE_MODULE_FILEPATH or
+        "debug_parser/target/wasm32-unknown-unknown/release/debug_parser.wasm")
+    if module == nil then
+        return nil, err
+    end
     module.IMPORTS = {}
     local interface = bindings(module)
     local parsed_modules = {}
