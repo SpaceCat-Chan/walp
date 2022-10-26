@@ -21,21 +21,27 @@ local function extend(M, N, i)
     return inv_signed(N, signed(M, i))
 end
 
-local function take(byte, return_instead)
-    return function(inseq, ptr)
-        if inseq(ptr) == byte then
-            return return_instead or byte, ptr + 1
+local take_mt = {
+    __call = function(this, inseq, ptr)
+        if inseq(ptr) == this.byte then
+            return this.return_instead or this.byte, ptr + 1
         else
             return nil
         end
-    end
+    end;
+}
+
+local function take(byte, return_instead)
+    return setmetatable({
+        byte = byte,
+        return_instead = return_instead
+    }, take_mt)
 end
 
-local function tuple(...)
-    local args = { ... }
-    return function(inseq, ptr)
+local tuple_mt = {
+    __call = function(this, inseq, ptr)
         local results = {}
-        for _, parser in ipairs(args) do
+        for _, parser in ipairs(this.args) do
             local result, next = parser(inseq, ptr)
             if result ~= nil then
                 table.insert(results, result)
@@ -45,27 +51,38 @@ local function tuple(...)
             end
         end
         return results, ptr
-    end
+    end;
+}
+
+local function tuple(...)
+    return setmetatable({
+        args = { ... }
+    }, tuple_mt)
 end
 
-local function alt(...)
-    local args = { ... }
-    return function(inseq, ptr)
-        for _, parser in ipairs(args) do
+local alt_mt = {
+    __call = function(this, inseq, ptr)
+        for _, parser in ipairs(this.args) do
             local result, next = parser(inseq, ptr)
             if result ~= nil then
                 return result, next
             end
         end
         return nil
-    end
+    end;
+}
+
+local function alt(...)
+    return setmetatable({
+        args = { ... }
+    }, alt_mt)
 end
 
-local function repeat_n(amount, parser)
-    return function(inseq, ptr)
+local repeat_n_mt = {
+    __call = function(this, inseq, ptr)
         local results = {}
-        for x = 1, amount do
-            local result, next = parser(inseq, ptr)
+        for x = 1, this.amount do
+            local result, next = this.parser(inseq, ptr)
             if result == nil then
                 return nil
             end
@@ -73,25 +90,39 @@ local function repeat_n(amount, parser)
             results[x] = result
         end
         return results, ptr
-    end
+    end;
+}
+
+local function repeat_n(amount, parser)
+    return setmetatable({
+        amount = amount,
+        parser = parser
+    }, repeat_n_mt)
 end
 
-local function map(parser, mapper)
-    return function(inseq, ptr)
-        local result, ptr = parser(inseq, ptr)
+local map_mt = {
+    __call = function(this, inseq, ptr)
+        local result, ptr = this.parser(inseq, ptr)
         if result ~= nil then
-            return mapper(result), ptr
+            return this.mapper(result), ptr
         else
             return nil
         end
-    end
+    end;
+}
+
+local function map(parser, mapper)
+    return setmetatable({
+        parser = parser,
+        mapper = mapper
+    }, map_mt)
 end
 
-local function many0(parser)
-    return function(inseq, ptr)
+local many0_mt = {
+    __call = function(this, inseq, ptr)
         local results = {}
         while true do
-            local result, next = parser(inseq, ptr)
+            local result, next = this.parser(inseq, ptr)
             if result == nil then
                 return results, ptr
             else
@@ -99,42 +130,70 @@ local function many0(parser)
                 ptr = next
             end
         end
-    end
+    end;
+}
+
+local function many0(parser)
+    return setmetatable({
+        parser = parser
+    }, many0_mt)
 end
 
-local function many1(parser)
-    return function(inseq, ptr)
-        local results, next = many0(parser)(inseq, ptr)
+local many1_mt = {
+    __call = function(this, inseq, ptr)
+        local results, next = many0(this.parser)(inseq, ptr)
         if next(results) == nil then
             return nil
         end
         return results, next
-    end
+    end;
+}
+
+local function many1(parser)
+    return setmetatable({
+        parser = parser
+    }, many1_mt)
 end
 
-local function condition(parser, cond)
-    return function(inseq, ptr)
-        local result, next = parser(inseq, ptr)
+local condition_mt = {
+    __call = function(this, inseq, ptr)
+        local result, next = this.parser(inseq, ptr)
         if result == nil then
             return nil
-        elseif cond(result) then
+        elseif this.comp_type == 0 and result == this.val then
+            return result, next
+        elseif this.comp_type == 1 and result <= this.val then
+            return result, next
+        elseif this.comp_type == 2 and result >= this.val then
             return result, next
         else
             return nil
         end
     end
-end
+}
 
 local function eq(parser, val)
-    return condition(parser, function(x) return x == val end)
+    return setmetatable({
+        parser = parser,
+        comp_type = 0,
+        val = val
+    }, condition_mt)
 end
 
 local function le(parser, val)
-    return condition(parser, function(x) return x <= val end)
+    return setmetatable({
+        parser = parser,
+        comp_type = 1,
+        val = val
+    }, condition_mt)
 end
 
 local function ge(parser, val)
-    return condition(parser, function(x) return x >= val end)
+    return setmetatable({
+        parser = parser,
+        comp_type = 2,
+        val = val
+    }, condition_mt)
 end
 
 local function within(parser, min, max)
@@ -263,20 +322,25 @@ end
 --local function uLEB(inseq, )
 -- i hope no one will try to load ints larger than 2^52-1
 
-
-local function vec(parser)
-    return function(inseq, ptr)
+local vec_mt = {
+    __call = function(this, inseq, ptr)
         local amount, ptr = uLEB(inseq, ptr)
         if amount == nil then return nil end
         local results = {}
         for i = 1, amount do
-            local result, next = parser(inseq, ptr)
+            local result, next = this.parser(inseq, ptr)
             if result == nil then return nil end
             results[i] = result
             ptr = next
         end
         return results, ptr
-    end
+    end;
+}
+
+local function vec(parser)
+    return setmetatable({
+        parser = parser
+    }, vec_mt)
 end
 
 local function name(inseq, ptr)
