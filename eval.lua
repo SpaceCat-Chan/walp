@@ -2,6 +2,12 @@ local require_path = (...):match("(.-)[^%.]+$")
 local bit_conv = require(require_path .. "bitconverter")
 local bit = require(require_path .. "bitops")
 
+local have_ffi = pcall(require, "ffi")
+local ffi
+if have_ffi then
+    ffi = require("ffi")
+end
+
 local function cut_dot_0(s)
     local _, _, new = string.find(s, "(%d+)%.?0?")
     return new
@@ -120,15 +126,6 @@ local function invoke(addr, stack, frame, labels, module, frame_cache)
     push(frame, new_frame)
     push(labels, { type = new_f.type, is_function = true, stack_height = #stack })
     return true
-    --[[ from before de-recursion
-	local r, p = eval_instructions_with(new_f.code.body, stack, new_frame, labels)
-	pop(labels)
-    if r then
-	    for x=1,#new_f.type.to do
-		    push(stack, p[x])
-	    end
-    end
-    ]]
 end
 
 local function i64_ge_u(n1, n2)
@@ -345,47 +342,11 @@ instructions = {
     [0x02] = function(ins, stack, frame, labels, module) -- block,  br skips
         local new_label = expand_type(ins[2], module)
         push(labels, { type = new_label, break_pos = top(frame).ins_ptr + ins[3], stack_height = #stack })
-        --[[ old stuff from before de-recursion was done
-        local r, p = eval_instructions_with(ins[3], stack, frame, labels)
-        pop(labels)
-        if r == -1 then
-            return -1, p
-        end
-        if r ~= nil then
-            if r > 0 then
-                return r - 1, p
-            end
-            while #stack ~= stack_height do
-                pop(stack)
-            end
-            for x=1,#new_label.to do
-                push(stack, p[x])
-            end
-        end]]
     end,
     [0x03] = function(ins, stack, frame, labels, module) -- loop
         -- br loops again
         local new_label = expand_type(ins[2], module)
         push(labels, { type = new_label, break_pos = top(frame).ins_ptr + 1, stack_height = #stack })
-        --[[ old stuff from before de-recursion was done
-        local r, p = eval_instructions_with(ins[3], stack, frame, labels)
-        pop(labels)
-        if r == -1 then
-            return -1, p
-        end
-        if r ~= nil then
-            if r > 0 then
-                return r - 1, p
-            end
-            while #stack ~= stack_height do
-                pop(stack)
-            end
-            for x=1,#new_label.to do
-                push(stack, p[x])
-            end
-        else
-            break
-        end]]
     end,
     [0x04] = function(ins, stack, frame, labels, module) -- if else
         local new_label = expand_type(ins, module)
@@ -394,28 +355,6 @@ instructions = {
         if c == 0 then
             top(frame).ins_ptr = top(frame).ins_ptr + ins[4]
         end
-        --[[ old stuff from before de-recursion was done
-        if c ~= 0 then
-            r, p = eval_instructions_with(ins[2], stack, frame, labels)
-        else
-            r, p = eval_instructions_with(ins[4] or {}, stack, frame, labels)
-        end
-        pop(labels)
-        if r == -1 then
-            return -1, p
-        end
-        if r ~= nil then
-            if r > 0 then
-                return r - 1, p
-            end
-            while #stack ~= stack_height do
-                pop(stack)
-            end
-            for x=1,#new_label.to do
-                push(stack, p[x])
-            end
-        end
-        ]]
     end,
     [0x05] = function(ins, stack, frame, labels) -- else
         top(frame).ins_ptr = top(labels).break_pos - 2
@@ -530,6 +469,7 @@ instructions = {
         --[[
             from my current understanding:
             currently only one module can be loaded, so no lookup is required
+            NOTE: turns out i misunderstoop the spec, yeah, multiple modules can be loaded, we just don't support it
         ]]
         push(stack, ins[2])
     end,
