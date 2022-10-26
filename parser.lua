@@ -4,27 +4,27 @@ local bit = require(require_path .. 'bitops')
 
 
 local function signed(N, i)
-    if i > math.pow(2,N-1) then
-        return i - math.pow(2,N)
+    if i > math.pow(2, N - 1) then
+        return i - math.pow(2, N)
     end
     return i
 end
 
 local function inv_signed(N, i)
     if i < 0 then
-        return i + math.pow(2,N)
+        return i + math.pow(2, N)
     end
     return i
 end
 
-local function extend(M,N, i)
-    return inv_signed(N, signed(M,i))
+local function extend(M, N, i)
+    return inv_signed(N, signed(M, i))
 end
 
 local function take(byte, return_instead)
     return function(inseq, ptr)
         if inseq(ptr) == byte then
-            return return_instead or byte, ptr+1
+            return return_instead or byte, ptr + 1
         else
             return nil
         end
@@ -32,10 +32,10 @@ local function take(byte, return_instead)
 end
 
 local function tuple(...)
-    local args = {...}
+    local args = { ... }
     return function(inseq, ptr)
         local results = {}
-        for _,parser in ipairs(args) do
+        for _, parser in ipairs(args) do
             local result, next = parser(inseq, ptr)
             if result ~= nil then
                 table.insert(results, result)
@@ -49,9 +49,9 @@ local function tuple(...)
 end
 
 local function alt(...)
-    local args = {...}
+    local args = { ... }
     return function(inseq, ptr)
-        for _,parser in ipairs(args) do
+        for _, parser in ipairs(args) do
             local result, next = parser(inseq, ptr)
             if result ~= nil then
                 return result, next
@@ -64,7 +64,7 @@ end
 local function repeat_n(amount, parser)
     return function(inseq, ptr)
         local results = {}
-        for x=1,amount do
+        for x = 1, amount do
             local result, next = parser(inseq, ptr)
             if result == nil then
                 return nil
@@ -132,18 +132,18 @@ end
 local function le(parser, val)
     return condition(parser, function(x) return x <= val end)
 end
+
 local function ge(parser, val)
     return condition(parser, function(x) return x >= val end)
 end
+
 local function within(parser, min, max)
     return le(ge(parser, min), max)
 end
 
-
 local function byte(insep, ptr)
     return insep(ptr), ptr + 1
 end
-
 
 local function LEBlist(insep, ptr)
     local results = {}
@@ -161,7 +161,7 @@ end
 local function interpuLEB(bytes)
     local result = 0
     for index, byte in ipairs(bytes) do
-        result = bit.bor(result, bit.lshift(bit.band(byte, 0x7F), (index-1)*7))
+        result = bit.bor(result, bit.lshift(bit.band(byte, 0x7F), (index - 1) * 7))
     end
     return result
 end
@@ -187,18 +187,18 @@ end
 local function interpuLEB64(bytes)
     local low, high = 0, 0
     local byte_count = #bytes
-    for idx=1,4 do
-        if idx > byte_count then return high,low end
+    for idx = 1, 4 do
+        if idx > byte_count then return high, low end
         local byte = bytes[idx]
-        low = bit.bor(low, bit.lshift(bit.band(byte, 0x7F), (idx-1)*7))
+        low = bit.bor(low, bit.lshift(bit.band(byte, 0x7F), (idx - 1) * 7))
     end
-    if 5 > byte_count then return high,low end
+    if 5 > byte_count then return high, low end
     low = bit.bor(low, bit.lshift(bit.band(bytes[5], 0x0F), 28))
     high = bit.rshift(bit.band(bytes[5], 0x70), 4)
-    for idx=6,10 do
-        if idx > byte_count then return high,low end
+    for idx = 6, 10 do
+        if idx > byte_count then return high, low end
         local byte = bytes[idx]
-        high = bit.bor(high, bit.lshift(bit.band(byte, 0x7F), (idx-1)*7-32))
+        high = bit.bor(high, bit.lshift(bit.band(byte, 0x7F), (idx - 1) * 7 - 32))
     end
     return high, low
 end
@@ -207,7 +207,7 @@ local function uLEB64(inseq, ptr)
     local bytes, ptr = LEBlist(inseq, ptr)
     if bytes == nil then return nil end
     local high, low = interpuLEB64(bytes)
-    return {h = high, l = low}, ptr
+    return { h = high, l = low }, ptr
 end
 
 local function sLEB64(inseq, ptr)
@@ -219,11 +219,11 @@ local function sLEB64(inseq, ptr)
     local high, low = interpuLEB64(bytes)
     if #bytes < 5 then
         low = extend(7 * #bytes, 32, low)
-        high = bit.arshift(bit.band(low,0x80000000),31)
+        high = bit.arshift(bit.band(low, 0x80000000), 31)
     else
-        high = extend((7 * #bytes + 3)-32, 32, high)
+        high = extend((7 * #bytes + 3) - 32, 32, high)
     end
-    return {h = high, l = low}, ptr
+    return { h = high, l = low }, ptr
 end
 
 local function iLEB64(inseq, ptr)
@@ -269,7 +269,7 @@ local function vec(parser)
         local amount, ptr = uLEB(inseq, ptr)
         if amount == nil then return nil end
         local results = {}
-        for i=1,amount do
+        for i = 1, amount do
             local result, next = parser(inseq, ptr)
             if result == nil then return nil end
             results[i] = result
@@ -282,10 +282,10 @@ end
 local function name(inseq, ptr)
     local length = inseq(ptr)
     local result = ""
-    for x=ptr+1, ptr+length do
-        result = result..string.char(inseq(x))
+    for x = ptr + 1, ptr + length do
+        result = result .. string.char(inseq(x))
     end
-    return result, ptr+length+1
+    return result, ptr + length + 1
 end
 
 local value_type =
@@ -296,7 +296,7 @@ alt(
     take(0x7C, "f64")
 )
 
-local ref_type = 
+local ref_type =
 alt(
     take(0x70, "funcref"),
     take(0x6F, "externref")
@@ -307,13 +307,13 @@ local ptype = alt(value_type, ref_type)
 local result_type = vec(ptype)
 
 local function_type =
-map(tuple(take(0x60), result_type, result_type), function(f) return {from=f[2], to=f[3]} end)
+map(tuple(take(0x60), result_type, result_type), function(f) return { from = f[2], to = f[3] } end)
 
-local limit = 
+local limit =
 map(alt(
     tuple(take(0), uLEB),
     tuple(take(1), uLEB, uLEB)
-), function(f) return {min=f[2], max=f[3]} end)
+), function(f) return { min = f[2], max = f[3] } end)
 
 local memtype = limit
 
@@ -334,13 +334,13 @@ local index = uLEB
 local memarg = tuple(uLEB, uLEB)
 
 local function u8sToFloat(u8s)
-    local u32 = bit_conv.UInt8sToUInt32(u8s[1],u8s[2],u8s[3],u8s[4])
+    local u32 = bit_conv.UInt8sToUInt32(u8s[1], u8s[2], u8s[3], u8s[4])
     return bit_conv.UInt32ToFloat(u32)
 end
 
 local function u8sToDouble(u8s)
-    local u32_low = bit_conv.UInt8sToUInt32(u8s[1],u8s[2],u8s[3],u8s[4])
-    local u32_high = bit_conv.UInt8sToUInt32(u8s[5],u8s[6],u8s[7],u8s[8])
+    local u32_low = bit_conv.UInt8sToUInt32(u8s[1], u8s[2], u8s[3], u8s[4])
+    local u32_high = bit_conv.UInt8sToUInt32(u8s[5], u8s[6], u8s[7], u8s[8])
     return bit_conv.UInt32sToDouble(u32_low, u32_high)
 end
 
@@ -364,13 +364,14 @@ local function instr(inseq, ptr)
         tuple(take(0x1A)), -- drop
         tuple(take(0x1B)), -- select
         tuple(take(0x1C), value_type), -- select
-        tuple(within(byte, 0x20, 0x26), index), -- local.get, local.set, local.tee, global.get, global.set, table.get, table.set
+        tuple(within(byte, 0x20, 0x26), index),
+        -- local.get, local.set, local.tee, global.get, global.set, table.get, table.set
         tuple(take(0xFC), eq(uLEB, 12), index, index), -- table.init
         tuple(take(0xFC), eq(uLEB, 13), index), -- elem.drop
         tuple(take(0xFC), eq(uLEB, 14), index, index), -- table.copy
         tuple(take(0xFC), within(uLEB, 15, 17), index), -- table.grow size and fill
         tuple(within(byte, 0x28, 0x3E), memarg), -- memory load and store instructions (23)
-        tuple(within(byte, 0x3F,0x40), take(0x00)), -- memory size and grow
+        tuple(within(byte, 0x3F, 0x40), take(0x00)), -- memory size and grow
         tuple(take(0xFC), eq(uLEB, 8), index, take(0x00)), -- memory.init
         tuple(take(0xFC), eq(uLEB, 9), index), -- data.drop
         tuple(take(0xFC), eq(uLEB, 10), take(0x00), take(0x00)), -- memory.copy
@@ -380,7 +381,7 @@ local function instr(inseq, ptr)
         tuple(take(0x43), map(repeat_n(4, byte), u8sToFloat)), -- f32.const
         tuple(take(0x44), map(repeat_n(8, byte), u8sToDouble)), -- f32 const
         tuple(within(byte, 0x45, 0xC4)), -- numeric instructions (128)
-        tuple(take(0xFC), within(uLEB, 0,7)) -- saturating truncate instructions (8)
+        tuple(take(0xFC), within(uLEB, 0, 7))-- saturating truncate instructions (8)
     )(inseq, ptr)
 end
 
@@ -398,7 +399,7 @@ local function custom_section(size)
         if bytes == nil then
             return nil
         else
-            return {name, bytes}, ptr
+            return { name, bytes }, ptr
         end
     end
 end
@@ -444,9 +445,9 @@ local function elem(inseq, ptr)
             local table_index, next = index(inseq, ptr)
             if table_index == nil then return nil end
             ptr = next
-            result.active_info = {table = table_index}
+            result.active_info = { table = table_index }
         else
-            result.active_info = {table = 0}
+            result.active_info = { table = 0 }
         end
         result.type = "funcref"
         local offset, next = expr(inseq, ptr)
@@ -471,7 +472,8 @@ local function elem(inseq, ptr)
                 if kind == nil then return nil end
                 ptr = next
             end
-            local function_ids, next = vec(map(index, function(index) return {{{0xD2, index}}, 0x0B} end))(inseq, ptr)
+            local function_ids, next = vec(map(index, function(index) return { { { 0xD2, index } }, 0x0B } end))(inseq,
+                ptr)
             if function_ids == nil then return nil end
             ptr = next
             result.init = function_ids
@@ -490,7 +492,7 @@ local function elem(inseq, ptr)
             local kind, next = take(0x00)(inseq, ptr)
             if kind == nil then return nil end
             ptr = next
-            local function_ids, next = vec(map(index, function(index) return {{{0xD2, index}}, 0x0B} end))
+            local function_ids, next = vec(map(index, function(index) return { { { 0xD2, index } }, 0x0B } end))
             if function_ids == nil then return nil end
             ptr = next
             result.init = function_ids
@@ -552,7 +554,7 @@ local function section(inseq, ptr)
     else
         section, new_ptr = section_table[id](inseq, ptr)
     end
-    return {id, size, section}, new_ptr
+    return { id, size, section }, new_ptr
 end
 
 local magic = tuple(take(0x00), take(0x61), take(0x73), take(0x6D))

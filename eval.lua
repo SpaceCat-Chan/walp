@@ -115,7 +115,8 @@ local function invoke(addr, stack, frame, labels, module, frame_cache)
         end
     end
 
-    local new_frame = { func = new_f.code, func_addr = addr, locals = args, type = new_f.type, ins_ptr = 0, stack_height = #stack, label_height = #labels }
+    local new_frame = { func = new_f.code, func_addr = addr, locals = args, type = new_f.type, ins_ptr = 0,
+        stack_height = #stack, label_height = #labels }
     push(frame, new_frame)
     push(labels, { type = new_f.type, is_function = true, stack_height = #stack })
     return true
@@ -256,14 +257,16 @@ local function i64_div_core(rem, divisor)
         local log2 = math.ceil(math.log(q_approx, 2))
         local delta = math.pow(2, math.max(0, log2 - 48))
 
-        local res_approx_low, res_approx_high = bit.band(math.floor(q_approx), 0xFFFFFFFF), bit.band(math.floor(q_approx / math.pow(2, 32)), 0xFFFFFFFF)
+        local res_approx_low, res_approx_high = bit.band(math.floor(q_approx), 0xFFFFFFFF),
+            bit.band(math.floor(q_approx / math.pow(2, 32)), 0xFFFFFFFF)
         local res_approx = { l = res_approx_low, h = res_approx_high }
         local rem_approx = i64_mul(res_approx, divisor)
 
         -- decrease approximation until smaller than remainder and the multiply hopefully
         while i64_gt_u(rem_approx, rem) == 1 do
             q_approx = q_approx - delta
-            res_approx_low, res_approx_high = bit.band(math.floor(q_approx), 0xFFFFFFFF), bit.band(math.floor(q_approx / math.pow(2, 32)), 0xFFFFFFFF)
+            res_approx_low, res_approx_high = bit.band(math.floor(q_approx), 0xFFFFFFFF),
+                bit.band(math.floor(q_approx / math.pow(2, 32)), 0xFFFFFFFF)
             res_approx = { l = res_approx_low, h = res_approx_high }
             rem_approx = i64_mul(res_approx, divisor)
         end
@@ -312,10 +315,14 @@ local function __CTZ__(x)
 end
 
 local __popcnt_tab = {
-    1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
-    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
-    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
-    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8
+    1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 1, 2, 2, 3, 2, 3, 3, 4,
+    2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 2, 3, 3, 4, 3, 4, 4,
+    5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 2, 3, 3, 4, 3, 4, 4,
+    5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 3, 4, 4, 5, 4, 5, 5,
+    6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8
 }
 __popcnt_tab[0] = 0
 
