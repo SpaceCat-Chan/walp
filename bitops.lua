@@ -1,6 +1,6 @@
 local require_path = (...):match("(.-)[^%.]+$")
 
-local bit_attempt = require("bit")
+local bit_attempt = pcall(require, "bit")
 
 if bit32 then
     return require(require_path .. 'bitops_bit32')
