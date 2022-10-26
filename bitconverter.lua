@@ -8,9 +8,12 @@
 
 local bit_conv = {}
 
-local bit_band   = bit32.band
-local bit_lshift = bit32.lshift
-local bit_rshift = bit32.rshift
+local require_path = (...):match("(.-)[^%.]+$")
+local bit = require(require_path .. 'bitops')
+
+local bit_band   = bit.band
+local bit_lshift = bit.lshift
+local bit_rshift = bit.rshift
 local math_floor = math.floor
 local math_frexp = math.frexp
 local math_ldexp = math.ldexp

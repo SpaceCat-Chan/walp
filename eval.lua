@@ -1,6 +1,6 @@
 local require_path = (...):match("(.-)[^%.]+$")
 local bit_conv = require(require_path .. "bitconverter")
-local bit = bit32
+local bit = require(require_path .. "bitops")
 
 local function cut_dot_0(s)
     local _, _, new = string.find(s, "(%d+)%.?0?")

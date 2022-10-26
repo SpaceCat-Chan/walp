@@ -1,7 +1,6 @@
-local bit = bit32
-
 local require_path = (...):match("(.-)[^%.]+$")
-local bit_conv = require(require_path.."bitconverter")
+local bit_conv = require(require_path .. "bitconverter")
+local bit = require(require_path .. 'bitops')
 
 
 local function signed(N, i)
