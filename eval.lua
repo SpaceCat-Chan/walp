@@ -1171,6 +1171,11 @@ instructions = {
         local result = (n.h ~= 0) and __CLZ__(n.h) or 32 + __CLZ__(n.l)
         push(stack, { l = result, h = 0 })
     end,
+    [0x7a] = function(ins, stack, frame) -- i64.ctz
+        local n = pop(stack)
+        local result = (n.l ~= 0) and __CTZ__(n.l) or 32 + __CTZ__(n.h)
+        push(stack, { l = result, h = 0 })
+    end,
     [0x7C] = function(ins, stack, frame) -- i64.add
         local b = pop(stack)
         local a = pop(stack)
