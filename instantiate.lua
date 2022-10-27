@@ -1,59 +1,60 @@
 local require_path = (...):match("(.-)[^%.]+$")
-local eval = require(require_path.."eval")
+local eval = require(require_path .. "eval")
 
 local function check_imports(module)
     if module.IMPORTS == nil and #module.imports ~= 0 then
         error("missing imports!")
     end
-    for _,import in pairs(module.imports) do
+    for _, import in pairs(module.imports) do
         local mod = module.IMPORTS[import.module]
         if mod == nil or mod[import.name] == nil then
-            error("missing import "..import.name.." in "..import.module.."!")
+            error("missing import " .. import.name .. " in " .. import.module .. "!")
         end
     end
 end
 
 local function add_functions_to_store(module)
     module.store.funcs = {}
-    for _,import in pairs(module.imports) do
+    for _, import in pairs(module.imports) do
         if import.desc.func then
-            local type = module.types[import.desc.func+1]
+            local type = module.types[import.desc.func + 1]
             table.insert(module.store.funcs, {
                 type = type,
                 hostcode = module.IMPORTS[import.module][import.name]
             })
         end
     end
-    for _,func in pairs(module.funcs) do
-        local type = module.types[func.type+1]
+    for _, func in pairs(module.funcs) do
+        local type = module.types[func.type + 1]
         table.insert(module.store.funcs, {
             type = type,
             module = module,
-            code = func
+            code = func,
+            decoded_instruction_cache = {}
         })
     end
 end
 
 local function add_tables_to_store(module)
     module.store.tables = {}
-    for _,import in pairs(module.imports) do
+    for _, import in pairs(module.imports) do
         if import.desc.table then
             local tab = {
                 type = import.desc.table,
                 elem = {}
             }
-            for x=1,tab.type[2].min do
+            for x = 1, tab.type[2].min do
                 tab.elem[x] = 0
             end
             table.insert(module.store.tables, tab)
         end
     end
-    for _,table_ in pairs(module.tables) do
+    for _, table_ in pairs(module.tables) do
         local tab = {
             type = table_,
             elem = {}
         }
-        for x=1,tab.type[2].min do
+        for x = 1, tab.type[2].min do
             tab.elem[x] = 0
         end
         table.insert(module.store.tables, tab)
@@ -62,24 +63,24 @@ end
 
 local function add_memories_to_store(module)
     module.store.mems = {}
-    for _,import in pairs(module.imports) do
+    for _, import in pairs(module.imports) do
         if import.desc.mem then
             local m = {
                 type = import.desc.mem,
                 data = {}
             }
-            for x=1,(m.type.min * 65536) do
+            for x = 1, (m.type.min * 65536) do
                 m.data[x] = 0
             end
             table.insert(module.store.mems, m)
         end
     end
-    for _,mem in pairs(module.mems) do
+    for _, mem in pairs(module.mems) do
         local m = {
             type = mem,
             data = {}
         }
-        for x=1,(m.type.min * 65536) do
+        for x = 1, (m.type.min * 65536) do
             m.data[x] = 0
         end
         table.insert(module.store.mems, m)
@@ -88,7 +89,7 @@ end
 
 local function add_globals_to_store(module)
     module.store.globals = {}
-    for _,import in pairs(module.imports) do
+    for _, import in pairs(module.imports) do
         if import.desc.global then
             table.insert(module.store.global, {
                 type = import.desc.global,
@@ -96,7 +97,7 @@ local function add_globals_to_store(module)
             })
         end
     end
-    for _,global in pairs(module.globals) do
+    for _, global in pairs(module.globals) do
         table.insert(module.store.globals, {
             type = global.type,
             val = eval.simple(global.init)
@@ -106,7 +107,7 @@ end
 
 local function add_elems_to_store(module)
     module.store.elems = {}
-    for _,elem in pairs(module.elems) do
+    for _, elem in pairs(module.elems) do
         table.insert(module.store.elems, {
             type = elem.type,
             elem = eval.simple_list(elem.init)
@@ -116,7 +117,7 @@ end
 
 local function add_datas_to_store(module)
     module.store.datas = {}
-    for _,data in pairs(module.datas) do
+    for _, data in pairs(module.datas) do
         table.insert(module.store.datas, {
             data = data.init
         })
@@ -134,11 +135,11 @@ local function create_store(module)
 end
 
 local function fill_exports(module)
-    for idx,export in pairs(module.exports) do
+    for idx, export in pairs(module.exports) do
         local interface_export = module.EXPORTS[export.name]
         if export.desc.func then
             interface_export.call = function(...)
-                return eval.call_function(module, export.desc.func, {...})
+                return eval.call_function(module, export.desc.func, { ... })
             end
         elseif export.desc.mem then
             eval.make_memory_interface(module, export.desc.mem, interface_export)

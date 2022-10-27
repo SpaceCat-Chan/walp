@@ -2,11 +2,7 @@ local require_path = (...):match("(.-)[^%.]+$")
 local bit_conv = require(require_path .. "bitconverter")
 local bit = require(require_path .. "bitops")
 
-local have_ffi = pcall(require, "ffi")
-local ffi
-if have_ffi then
-    ffi = require("ffi")
-end
+local function simple_nop() end
 
 local function cut_dot_0(s)
     local _, _, new = string.find(s, "(%d+)%.?0?")
@@ -84,12 +80,13 @@ local function load_from(ins, stack, frame, N, module)
     return bytes
 end
 
-local function store_to(ins, stack, frame, bytes, module)
+local function store_to(ins, stack, frame, bytes, module, labels, frame_cache, next_ins, next_ins_data, ...)
     local mem, ea, error = find_mem_address(ins, stack, frame, #bytes * 8, module)
     if error then return error end
     for x = 1, #bytes do
         mem.data[ea + x] = bytes[x]
     end
+    return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
 end
 
 local eval_single_with, eval_instructions_with
@@ -122,7 +119,7 @@ local function invoke(addr, stack, frame, labels, module, frame_cache)
     end
 
     local new_frame = { func = new_f.code, func_addr = addr, locals = args, type = new_f.type, ins_ptr = 0,
-        stack_height = #stack, label_height = #labels }
+        stack_height = #stack, label_height = #labels, decoded_instructions = new_f.decoded_instruction_cache }
     push(frame, new_frame)
     push(labels, { type = new_f.type, is_function = true, stack_height = #stack })
     return true
@@ -337,13 +334,14 @@ instructions = {
     [0x00] = function(ins, stack, frame) -- unreachable
         return "unreachable"
     end,
-    [0x01] = function(ins, stack, frame) -- noop
+    [0x01] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- noop
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x02] = function(ins, stack, frame, labels, module) -- block,  br skips
+    [0x02] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- block,  br skips
         local new_label = expand_type(ins[2], module)
         push(labels, { type = new_label, break_pos = top(frame).ins_ptr + ins[3], stack_height = #stack })
     end,
-    [0x03] = function(ins, stack, frame, labels, module) -- loop
+    [0x03] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- loop
         -- br loops again
         local new_label = expand_type(ins[2], module)
         push(labels, { type = new_label, break_pos = top(frame).ins_ptr + 1, stack_height = #stack })
@@ -454,30 +452,34 @@ instructions = {
         return invoke(r, stack, frame, labels, module, frame_cache)
     end,
     -- REFERENCE INSTRUCTIONS -----------------------
-    [0xD0] = function(ins, stack, frame) -- ref.null
+    [0xD0] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- ref.null
         push(stack, 0)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0xD1] = function(ins, stack, frame) -- ref.is_null
+    [0xD1] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- ref.is_null
         local val = pop(stack)
         if val == 0 then
             push(stack, 1)
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0xD2] = function(ins, stack, frame) -- ref.func
+    [0xD2] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- ref.func
         --[[
             from my current understanding:
             currently only one module can be loaded, so no lookup is required
-            NOTE: turns out i misunderstoop the spec, yeah, multiple modules can be loaded, we just don't support it
+            NOTE: turns out i misunderstood the spec, yeah, multiple modules can be loaded, we just don't support it
         ]]
         push(stack, ins[2])
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     -- PARAMETRIC INSTRUCTIONS -----------------------
-    [0x1A] = function(ins, stack, frame) -- drop
+    [0x1A] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- drop
         pop(stack)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x1B] = function(ins, stack, frame) -- select
+    [0x1B] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- select
         local selector = pop(stack)
         local val2 = pop(stack)
         local val1 = pop(stack)
@@ -486,33 +488,40 @@ instructions = {
         else
             push(stack, val2)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     -- VARIABLE INSTRUCTIONS -------------------------
-    [0x20] = function(ins, stack, frame, labels, module, frame_cache) -- local.get
+    [0x20] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- local.get
         push(stack, frame_cache.locals[ins[2] + 1])
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x21] = function(ins, stack, frame, labels, module, frame_cache) -- local.set
+    [0x21] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- local.set
         frame_cache.locals[ins[2] + 1] = pop(stack)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x22] = function(ins, stack, frame, labels, module, frame_cache) -- local.tee
+    [0x22] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- local.tee
         frame_cache.locals[ins[2] + 1] = stack[#stack]
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x23] = function(ins, stack, frame, labels, module) -- global.get
+    [0x23] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- global.get
         push(stack, module.store.globals[ins[2] + 1].val)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x24] = function(ins, stack, frame, labels, module) -- global.set
+    [0x24] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- global.set
         module.store.globals[ins[2] + 1].val = pop(stack)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     -- TABLE INSTRUCTIONS ----------------------------
-    [0x25] = function(ins, stack, frame, labels, module) -- table.get
+    [0x25] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- table.get
         local tab = module.store.tables[ins[2] + 1]
         local i = pop(stack)
         if i >= #tab.elem then
             error("trap")
         end
         push(stack, tab.elem[i + 1])
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x26] = function(ins, stack, frame, labels, module) -- table.set
+    [0x26] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- table.set
         local x = ins[2]
         local tab = module.store.tables[x + 1]
         local val = pop(stack)
@@ -521,55 +530,64 @@ instructions = {
             error("trap")
         end
         tab.elem[i + 1] = val
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     -- MEMORY INSTRUCTIONS ---------------------------
-    [0x28] = function(ins, stack, frame, labels, module) -- i32.load
+    [0x28] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.load
         local bytes, error = load_from(ins, stack, frame, 32, module)
         if error then return error end
         push(stack, bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes)))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x29] = function(ins, stack, frame, labels, module) -- i64.load
+    [0x29] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.load
         local bytes, error = load_from(ins, stack, frame, 64, module)
         if error then return error end
         push(stack, {
             l = bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes, 1, 4)),
             h = bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes, 5, 8))
         })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x2A] = function(ins, stack, frame, labels, module) -- f32.load
+    [0x2A] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.load
         local bytes, error = load_from(ins, stack, frame, 32, module)
         if error then return error end
         push(stack, bit_conv.UInt32ToFloat(bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes))))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x2B] = function(ins, stack, frame, labels, module) -- f64.load
+    [0x2B] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f64.load
         local bytes, error = load_from(ins, stack, frame, 64, module)
         if error then return error end
         push(stack, bit_conv.UInt32sToDouble(
             bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes, 1, 4)),
             bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes, 5, 8))
         ))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x2C] = function(ins, stack, frame, labels, module) -- i32.load8_s
+    [0x2C] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.load8_s
         local bytes, error = load_from(ins, stack, frame, 8, module)
         if error then return error end
         push(stack, extend(8, 32, bytes[1]))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x2D] = function(ins, stack, frame, labels, module) -- i32.load8_u
+    [0x2D] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.load8_u
         local bytes, error = load_from(ins, stack, frame, 8, module)
         if error then return error end
         push(stack, bytes[1])
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x2E] = function(ins, stack, frame, labels, module) -- i32.load16_s
+    [0x2E] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.load16_s
         local bytes, error = load_from(ins, stack, frame, 16, module)
         if error then return error end
         push(stack, extend(16, 32, bit_conv.UInt8sToUInt16((table.unpack or unpack)(bytes))))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x2F] = function(ins, stack, frame, labels, module) -- i32.load16_u
+    [0x2F] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.load16_u
         local bytes, error = load_from(ins, stack, frame, 16, module)
         if error then return error end
         push(stack, bit_conv.UInt8sToUInt16((table.unpack or unpack)(bytes)))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x30] = function(ins, stack, frame, labels, module) -- i64.load8_s
+    [0x30] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.load8_s
         local bytes, error = load_from(ins, stack, frame, 8, module)
         if error then return error end
         if bit.band(bytes[1], 0x80) ~= 0 then
@@ -577,13 +595,15 @@ instructions = {
         else
             push(stack, { l = bytes[1], h = 0 })
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x31] = function(ins, stack, frame, labels, module) -- i64.load8_u
+    [0x31] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.load8_u
         local bytes, error = load_from(ins, stack, frame, 8, module)
         if error then return error end
         push(stack, { l = bytes[1], h = 0 })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x32] = function(ins, stack, frame, labels, module) -- i64.load16_s
+    [0x32] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.load16_s
         local bytes, error = load_from(ins, stack, frame, 16, module)
         if error then return error end
         local raw_num = bit_conv.UInt8sToUInt16((table.unpack or unpack)(bytes))
@@ -592,13 +612,15 @@ instructions = {
         else
             push(stack, { l = raw_num, h = 0 })
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x33] = function(ins, stack, frame, labels, module) -- i64.load16_u
+    [0x33] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.load16_u
         local bytes, error = load_from(ins, stack, frame, 16, module)
         if error then return error end
         push(stack, { l = bit_conv.UInt8sToUInt16((table.unpack or unpack)(bytes)), h = 0 })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x34] = function(ins, stack, frame, labels, module) -- i64.load32_s
+    [0x34] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.load32_s
         local bytes, error = load_from(ins, stack, frame, 32, module)
         if error then return error end
         local raw_num = bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes))
@@ -607,65 +629,71 @@ instructions = {
         else
             push(stack, { l = raw_num, h = 0 })
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x35] = function(ins, stack, frame, labels, module) -- i64.load32_u
+    [0x35] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.load32_u
         local bytes, error = load_from(ins, stack, frame, 32, module)
         if error then return error end
         push(stack, { l = bit_conv.UInt8sToUInt32((table.unpack or unpack)(bytes)), h = 0 })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x36] = function(ins, stack, frame, labels, module) -- i32.store
+    [0x36] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.store
         local c = pop(stack)
         local bytes = { bit_conv.UInt32ToUInt8s(c) }
-        return store_to(ins, stack, frame, bytes, module)
+        return store_to(ins, stack, frame, bytes, module, labels, frame_cache, next_ins, next_ins_data, ...)
     end,
-    [0x37] = function(ins, stack, frame, labels, module) -- i64.store
+    [0x37] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.store
         local c = pop(stack)
         local u80, u81, u82, u83 = bit_conv.UInt32ToUInt8s(c.l)
         local u84, u85, u86, u87 = bit_conv.UInt32ToUInt8s(c.h)
-        return store_to(ins, stack, frame, { u80, u81, u82, u83, u84, u85, u86, u87 }, module)
+        return store_to(ins, stack, frame, { u80, u81, u82, u83, u84, u85, u86, u87 }, module, labels, frame_cache,
+            next_ins, next_ins_data, ...)
     end,
-    [0x38] = function(ins, stack, frame, labels, module) -- f32.store
+    [0x38] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.store
         local c = pop(stack)
-        return store_to(ins, stack, frame, { bit_conv.UInt32ToUInt8s(bit_conv.FloatToUInt32(c)) }, module)
+        return store_to(ins, stack, frame, { bit_conv.UInt32ToUInt8s(bit_conv.FloatToUInt32(c)) }, module, labels,
+            frame_cache, next_ins, next_ins_data, ...)
     end,
-    [0x39] = function(ins, stack, frame, labels, module) -- f64.store
+    [0x39] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f64.store
         local c = pop(stack)
         local l, h = bit_conv.DoubleToUInt32s(c)
         local u80, u81, u82, u83 = bit_conv.UInt32ToUInt8s(l)
         local u84, u85, u86, u87 = bit_conv.UInt32ToUInt8s(h)
-        return store_to(ins, stack, frame, { u80, u81, u82, u83, u84, u85, u86, u87 }, module)
+        return store_to(ins, stack, frame, { u80, u81, u82, u83, u84, u85, u86, u87 }, module, labels, frame_cache,
+            next_ins, next_ins_data, ...)
     end,
-    [0x3A] = function(ins, stack, frame, labels, module) -- i32.store8
+    [0x3A] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.store8
         local c = pop(stack)
         local u80, _, _, _ = bit_conv.UInt32ToUInt8s(c)
-        return store_to(ins, stack, frame, { u80 }, module)
+        return store_to(ins, stack, frame, { u80 }, module, labels, frame_cache, next_ins, next_ins_data, ...)
     end,
-    [0x3B] = function(ins, stack, frame, labels, module) -- i32.store16
+    [0x3B] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.store16
         local c = pop(stack)
         local u80, u81, _, _ = bit_conv.UInt32ToUInt8s(c)
-        return store_to(ins, stack, frame, { u80, u81 }, module)
+        return store_to(ins, stack, frame, { u80, u81 }, module, labels, frame_cache, next_ins, next_ins_data, ...)
     end,
-    [0x3C] = function(ins, stack, frame, labels, module) -- i64.store8
+    [0x3C] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.store8
         local c = pop(stack)
         local u80, _, _, _ = bit_conv.UInt32ToUInt8s(c.l)
-        return store_to(ins, stack, frame, { u80 }, module)
+        return store_to(ins, stack, frame, { u80 }, module, labels, frame_cache, next_ins, next_ins_data, ...)
     end,
-    [0x3D] = function(ins, stack, frame, labels, module) -- i64.store16
+    [0x3D] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.store16
         local c = pop(stack)
         local u80, u81, _, _ = bit_conv.UInt32ToUInt8s(c.l)
-        return store_to(ins, stack, frame, { u80, u81 }, module)
+        return store_to(ins, stack, frame, { u80, u81 }, module, labels, frame_cache, next_ins, next_ins_data, ...)
     end,
-    [0x3E] = function(ins, stack, frame, labels, module) -- i64.store32
+    [0x3E] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.store32
         local c = pop(stack)
         local bytes = { bit_conv.UInt32ToUInt8s(c.l) }
-        return store_to(ins, stack, frame, bytes, module)
+        return store_to(ins, stack, frame, bytes, module, labels, frame_cache, next_ins, next_ins_data, ...)
     end,
-    [0x3F] = function(ins, stack, frame, labels, module) -- memory.size
+    [0x3F] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- memory.size
         local m = ins[2]
         local mem = module.store.mems[m + 1]
         push(stack, #mem.data / 65536)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x40] = function(ins, stack, frame, labels, module) -- memory.grow
+    [0x40] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- memory.grow
         local mem = module.store.mems[ins[2] + 1]
         local sz = #mem.data / 65536
         local n = pop(stack)
@@ -678,20 +706,23 @@ instructions = {
             mem.data[x] = 0
         end
         push(stack, sz)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     -- NUMERICS -----------------------------
-    [0x41] = function(ins, stack, frame) -- i32.const, i64.const, f32.const, f64.const
+    [0x41] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.const, i64.const, f32.const, f64.const
         push(stack, ins[2])
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x45] = function(ins, stack, frame) -- i32.eqz
+    [0x45] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.eqz
         local n = pop(stack)
         if n == 0 then
             push(stack, 1)
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x46] = function(ins, stack, frame) -- i32.eq
+    [0x46] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.eq
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 == n2 then
@@ -699,8 +730,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x47] = function(ins, stack, frame) -- i32.ne
+    [0x47] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.ne
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 ~= n2 then
@@ -708,8 +740,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x48] = function(ins, stack, frame) -- i32.lt_s
+    [0x48] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.lt_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         if signed(32, n1) < signed(32, n2) then
@@ -717,8 +750,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x49] = function(ins, stack, frame) -- i32.lt_u
+    [0x49] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.lt_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 < n2 then
@@ -726,8 +760,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x4A] = function(ins, stack, frame) -- i32.gt_s
+    [0x4A] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.gt_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         if signed(32, n1) > signed(32, n2) then
@@ -735,8 +770,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x4B] = function(ins, stack, frame) -- i32.gt_u
+    [0x4B] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.gt_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 > n2 then
@@ -744,8 +780,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x4C] = function(ins, stack, frame) -- i32.le_s
+    [0x4C] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.le_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         if signed(32, n1) <= signed(32, n2) then
@@ -753,8 +790,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x4D] = function(ins, stack, frame) -- i32.le_u
+    [0x4D] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.le_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 <= n2 then
@@ -762,8 +800,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x4E] = function(ins, stack, frame) -- i32.ge_s
+    [0x4E] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.ge_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         if signed(32, n1) >= signed(32, n2) then
@@ -771,8 +810,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x4F] = function(ins, stack, frame) -- i32.ge_u
+    [0x4F] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.ge_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 >= n2 then
@@ -780,16 +820,18 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x50] = function(ins, stack, frame) -- i64.eqz
+    [0x50] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.eqz
         local n = pop(stack)
         if n.l == 0 and n.h == 0 then
             push(stack, 1)
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x51] = function(ins, stack, frame) -- i64.eq
+    [0x51] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.eq
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1.l == n2.l and n1.h == n2.h then
@@ -797,9 +839,9 @@ instructions = {
         else
             push(stack, 0)
         end
-
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x52] = function(ins, stack, frame) -- i64.ne
+    [0x52] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.ne
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1.l ~= n2.l or n1.h ~= n2.h then
@@ -807,8 +849,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x53] = function(ins, stack, frame) -- i64.lt_s
+    [0x53] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.lt_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         local n1_is_neg = bit.rshift(n1.h, 31) == 1
@@ -836,8 +879,9 @@ instructions = {
                 push(stack, n)
             end
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x54] = function(ins, stack, frame) -- i64.lt_u
+    [0x54] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.lt_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1.h < n2.h then
@@ -851,8 +895,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x55] = function(ins, stack, frame) -- i64.gt_s
+    [0x55] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.gt_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         local n1_is_neg = bit.rshift(n1.h, 31) == 1
@@ -880,13 +925,15 @@ instructions = {
                 push(stack, n)
             end
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x56] = function(ins, stack, frame) -- i64.gt_u
+    [0x56] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.gt_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, i64_gt_u(n1, n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x57] = function(ins, stack, frame) -- i64.le_s
+    [0x57] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.le_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         local n1_is_neg = bit.rshift(n1.h, 31) == 1
@@ -914,13 +961,15 @@ instructions = {
                 push(stack, t)
             end
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x58] = function(ins, stack, frame) -- i64.le_u
+    [0x58] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.le_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, i64_le_u(n1, n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x59] = function(ins, stack, frame) -- i64.ge_s
+    [0x59] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.ge_s
         local n2 = pop(stack)
         local n1 = pop(stack)
         local n1_is_neg = bit.rshift(n1.h, 31) == 1
@@ -948,13 +997,15 @@ instructions = {
                 push(stack, t)
             end
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x5A] = function(ins, stack, frame) -- i64.ge_u
+    [0x5A] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.ge_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, i64_ge_u(n1, n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x5B] = function(ins, stack, frame) -- f32.eq
+    [0x5B] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.eq
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 == n2 then
@@ -962,8 +1013,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x5C] = function(ins, stack, frame) -- f32.ne
+    [0x5C] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.ne
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 ~= n2 then
@@ -971,8 +1023,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x5D] = function(ins, stack, frame) -- f32.lt
+    [0x5D] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.lt
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 < n2 then
@@ -980,8 +1033,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x5E] = function(ins, stack, frame) -- f32.gt
+    [0x5E] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.gt
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 > n2 then
@@ -989,8 +1043,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x5F] = function(ins, stack, frame) -- f32.le
+    [0x5F] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.le
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 <= n2 then
@@ -998,8 +1053,9 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x60] = function(ins, stack, frame) -- f32.ge
+    [0x60] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.ge
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n1 >= n2 then
@@ -1007,35 +1063,42 @@ instructions = {
         else
             push(stack, 0)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x67] = function(ins, stack, frame) -- i32.clz
+    [0x67] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.clz
         local n = pop(stack)
         push(stack, __CLZ__(n))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x68] = function(ins, stack, frame) -- i32.ctz
+    [0x68] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.ctz
         local n = pop(stack)
         push(stack, __CTZ__(n))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x69] = function(ins, stack, frame) -- i32.popcnt
+    [0x69] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.popcnt
         local n = pop(stack)
         push(stack, __POPCNT__(n))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x6A] = function(ins, stack, frame) -- i32.add
+    [0x6A] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.add
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, bit.band(n1 + n2, 0xFFFFFFFF))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x6B] = function(ins, stack, frame) -- i32.sub
+    [0x6B] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.sub
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, inv_signed(32, n1 - n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x6C] = function(ins, stack, frame) -- i32.mul
+    [0x6C] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.mul
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, bit.band(n1 * n2, 0xFFFFFFFF))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x6D] = function(ins, stack, frame) -- i32.div_s
+    [0x6D] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.div_s
         local n2 = signed(32, pop(stack))
         local n1 = signed(32, pop(stack))
         if n2 == 0 then
@@ -1046,122 +1109,142 @@ instructions = {
             error("trap, division resulted in 2^31")
         end
         push(stack, inv_signed(32, res))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x6E] = function(ins, stack, frame) -- i32.div_u
+    [0x6E] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.div_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n2 == 0 then
             error("trap, i32.div_s div by 0")
         end
         push(stack, math.floor(n1 / n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x6F] = function(ins, stack, frame) -- i32.rem_s
+    [0x6F] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.rem_s
         local n2 = signed(32, pop(stack))
         local n1 = signed(32, pop(stack))
         if n2 == 0 then
             error("trap, i32.rem_u div by zero")
         end
         push(stack, inv_signed(32, n1 - n2 * trunc(n1 / n2)))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x70] = function(ins, stack, frame) -- i32.rem_u
+    [0x70] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.rem_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         if n2 == 0 then
             error("trap, i32.rem_u div by zero")
         end
         push(stack, n1 - n2 * trunc(n1 / n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x71] = function(ins, stack, frame) -- i32.and
+    [0x71] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.and
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, bit.band(n1, n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x72] = function(ins, stack, frame) -- i32.or
+    [0x72] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.or
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, bit.bor(n1, n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x73] = function(ins, stack, frame) -- i32.xor
+    [0x73] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.xor
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, bit.bxor(n1, n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x74] = function(ins, stack, frame) -- i32.shl
+    [0x74] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.shl
         local n2 = pop(stack) % 32
         local n1 = pop(stack)
         push(stack, bit.band(bit.lshift(n1, n2), 0xFFFFFFFF))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x75] = function(ins, stack, frame) -- i32.shr_s
+    [0x75] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.shr_s
         local n2 = pop(stack) % 32
         local n1 = pop(stack)
         push(stack, bit.arshift(n1, n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x76] = function(ins, stack, frame) -- i32.shr_u
+    [0x76] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.shr_u
         local n2 = pop(stack) % 32
         local n1 = pop(stack)
         push(stack, bit.rshift(n1, n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x77] = function(ins, stack, frame) -- i32.rotl
+    [0x77] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.rotl
         local n2 = pop(stack) % 32
         local n1 = pop(stack)
         push(stack, bit.lrotate(n1, n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x79] = function(ins, stack, frame) -- i64.clz
+    [0x79] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.clz
         local n = pop(stack)
         local result = (n.h ~= 0) and __CLZ__(n.h) or 32 + __CLZ__(n.l)
         push(stack, { l = result, h = 0 })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x7a] = function(ins, stack, frame) -- i64.ctz
+    [0x7a] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.ctz
         local n = pop(stack)
         local result = (n.l ~= 0) and __CTZ__(n.l) or 32 + __CTZ__(n.h)
         push(stack, { l = result, h = 0 })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x7C] = function(ins, stack, frame) -- i64.add
+    [0x7C] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.add
         local b = pop(stack)
         local a = pop(stack)
         push(stack, i64_add(a, b))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x7D] = function(ins, stack, frame) -- i64.sub
+    [0x7D] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.sub
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, i64_sub(n1, n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x7E] = function(ins, stack, frame) -- i64.mul
+    [0x7E] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.mul
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, i64_mul(n1, n2))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x80] = function(ins, stack, frame) -- i64.div_u
+    [0x80] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.div_u
         local n2 = pop(stack)
         local n1 = pop(stack)
         local res, rem = i64_div_core(n1, n2)
         push(stack, res)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x83] = function(ins, stack, frame) -- i64.and
+    [0x83] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.and
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, {
             l = bit.band(n1.l, n2.l),
             h = bit.band(n1.h, n2.h)
         })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x84] = function(ins, stack, frame) -- i64.or
+    [0x84] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.or
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, {
             l = bit.bor(n1.l, n2.l),
             h = bit.bor(n1.h, n2.h)
         })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x85] = function(ins, stack, frame) -- i64.xor
+    [0x85] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.xor
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, {
             l = bit.bxor(n1.l, n2.l),
             h = bit.bxor(n1.h, n2.h)
         })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x86] = function(ins, stack, frame) -- i64.shl
+    [0x86] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.shl
         local n2 = pop(stack).l % 64
         local n1 = pop(stack)
         if n2 < 32 then
@@ -1176,8 +1259,9 @@ instructions = {
                 h = bit.lshift(n1.l, n2 - 32),
             })
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x87] = function(ins, stack, frame) -- i64.shr_s
+    [0x87] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.shr_s
         local n2 = pop(stack).l % 64
         local n1 = pop(stack)
         if n2 == 0 then
@@ -1202,8 +1286,9 @@ instructions = {
                 h = bit.arshift(n1.h, 31)
             })
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x88] = function(ins, stack, frame) -- i64.shr_u
+    [0x88] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.shr_u
         local n2 = pop(stack).l % 64
         local n1 = pop(stack)
         if n2 == 0 then
@@ -1228,8 +1313,9 @@ instructions = {
                 h = 0
             })
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x89] = function(ins, stack, frame) -- i64.rotl
+    [0x89] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.rotl
         local n2 = pop(stack).l % 64
         local n1 = pop(stack)
         if n2 == 0 then
@@ -1255,78 +1341,93 @@ instructions = {
                 h = l,
             })
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x8B] = function(ins, stack, frame) -- (f32/f64).abs
+    [0x8B] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).abs
         local n = pop(stack)
         push(stack, math.abs(n))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x8C] = function(ins, stack, frame) -- (f32/f64).neg
+    [0x8C] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).neg
         local n = pop(stack)
         push(stack, -n)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x92] = function(ins, stack, frame) -- (f32/f64).add
+    [0x92] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).add
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, n1 + n2)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x93] = function(ins, stack, frame) -- (f32/f64).sub
+    [0x93] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).sub
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, n1 - n2)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x94] = function(ins, stack, frame) -- (f32/f64).mul
+    [0x94] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).mul
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, n1 * n2)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0x95] = function(ins, stack, frame) -- (f32/f64).div
+    [0x95] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).div
         local n2 = pop(stack)
         local n1 = pop(stack)
         push(stack, n1 / n2)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0xA7] = function(ins, stack, frame) -- i32.wrap_i64
+    [0xA7] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.wrap_i64
         push(stack, pop(stack).l)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0xAC] = function(ins, stack, frame) -- i64.extend_i32_s
+    [0xAC] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.extend_i32_s
         local n = pop(stack)
         push(stack, { l = n, h = bit.arshift(n, 31) })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0xAD] = function(ins, stack, frame) -- i64.extend_i32_u
+    [0xAD] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.extend_i32_u
         local n = pop(stack)
         push(stack, { l = n, h = 0 })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0xB5] = function(ins, stack, frame) -- (f32/f64).convert_i64_u
+    [0xB5] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).convert_i64_u
         local n = pop(stack)
         local res = n.h * 4294967296 + n.l
         push(stack, res)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0xBC] = function(ins, stack, frame) -- i32.reinterpret_f32
+    [0xBC] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.reinterpret_f32
         local n = pop(stack)
         push(stack, bit_conv.FloatToUInt32(n))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0xBD] = function(ins, stack, frame) -- i64.reinterpret_f64
+    [0xBD] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.reinterpret_f64
         local n = pop(stack)
         local low, high = bit_conv.DoubleToUInt32s(n)
         push(stack, {
             l = low,
             h = high
         })
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0xBE] = function(ins, stack, frame) -- f32.reinterpret_i32
+    [0xBE] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.reinterpret_i32
         local n = pop(stack)
         push(stack, bit_conv.UInt32ToFloat(n))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [0xBF] = function(ins, stack, frame) -- f64.reinterpret_i64
+    [0xBF] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f64.reinterpret_i64
         local n = pop(stack)
         push(stack, bit_conv.UInt32sToDouble(n.l, n.h))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     -- EXTRA INSTRUCTIONS ----------------------------
-    [0xFC] = function(ins, stack, frame, labels, module, frame_cache)
+    [0xFC] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...)
         local ei = extra_instructions[ins[2]]
         if ei == nil then
             error("missing instruction for 0xFC " .. tostring(ins[2]))
         end
-        ei(ins, stack, frame, labels, module, frame_cache)
+        return ei(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...)
     end
 }
 instructions[0x1C] = instructions[0x1B]
@@ -1346,7 +1447,7 @@ for x = 0xB2, 0xB6 do
 end
 
 extra_instructions = {
-    [8] = function(ins, stack, frame, labels, module) -- memory.init
+    [8] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- memory.init
         local y = ins[3]
         local x = ins[4]
         local mem = module.store.mems[x + 1]
@@ -1359,22 +1460,23 @@ extra_instructions = {
                 error("trap")
             end
             if n == 0 then
-                return
+                return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
             end
             local b = da.data[s + 1]
             push(stack, d)
             push(stack, b)
-            instructions[0x3A]({ 0x3A, { 0, 0 } }, stack, frame, labels, module) -- i32.store8
+            instructions[0x3A]({ 0x3A, { 0, 0 } }, stack, frame, labels, module, nil, simple_nop) -- i32.store8
             d = d + 1
             s = s + 1
             n = n - 1
         end
     end,
-    [9] = function(ins, stack, frame, labels, module) -- data.drop
+    [9] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- data.drop
         local x = ins[3]
         module.store.datas[x + 1] = { data = {} }
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [10] = function(ins, stack, frame, labels) -- memory.copy
+    [10] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- memory.copy
         local mem = module.store.mems[1] -- cant tell which arg is to and which is from
         local n = pop(stack)
         local s = pop(stack)
@@ -1386,20 +1488,21 @@ extra_instructions = {
             if d <= s then
                 push(stack, d)
                 push(stack, s)
-                instructions[0x3A]({ 0x2D, { 0, 0 } }, stack, frame) -- i32.load8_u
-                instructions[0x3A]({ 0x3A, { 0, 0 } }, stack, frame) -- i32.store8
+                instructions[0x3A]({ 0x2D, { 0, 0 } }, stack, frame, nil, nil, nil, simple_nop) -- i32.load8_u
+                instructions[0x3A]({ 0x3A, { 0, 0 } }, stack, frame, nil, nil, nil, simple_nop) -- i32.store8
                 d = d + 1
                 s = s + 1
             else
                 push(stack, d + n - 1)
                 push(stack, s + n - 1)
-                instructions[0x3A]({ 0x2D, { 0, 0 } }, stack, frame) -- i32.load8_u
-                instructions[0x3A]({ 0x3A, { 0, 0 } }, stack, frame) -- i32.store8
+                instructions[0x3A]({ 0x2D, { 0, 0 } }, stack, frame, nil, nil, nil, simple_nop) -- i32.load8_u
+                instructions[0x3A]({ 0x3A, { 0, 0 } }, stack, frame, nil, nil, nil, simple_nop) -- i32.store8
             end
             n = n - 1
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [11] = function(ins, stack, frame, labels, module) -- memory.fill
+    [11] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- memory.fill
         local mem = module.store.mems[ins[3] + 1]
         local n = pop(stack)
         local val = pop(stack)
@@ -1414,8 +1517,9 @@ extra_instructions = {
             n = n - 1
             d = d + 1
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [12] = function(ins, stack, frame, labels, module) -- table.init
+    [12] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- table.init
         local y = ins[3]
         local x = ins[4]
         local tab = module.store.tables[x + 1]
@@ -1428,7 +1532,7 @@ extra_instructions = {
                 error("trap")
             end
             if n == 0 then
-                return
+                return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
             end
             local val = elem.elem[s + 1]
             push(stack, d)
@@ -1439,11 +1543,12 @@ extra_instructions = {
             n = n - 1
         end
     end,
-    [13] = function(ins, stack, frame, labels, module) -- elem.drop
+    [13] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- elem.drop
         local x = ins[3]
         module.store.elems[x + 1] = { elem = {}, type = module.store.elems[x + 1].type }
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [14] = function(ins, stack, frame, labels) -- table.copy
+    [14] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- table.copy
         local tab_x = module.store.tables[ins[3] + 1]
         local tab_y = module.store.tables[ins[4] + 1]
         local n = pop(stack)
@@ -1468,8 +1573,9 @@ extra_instructions = {
             end
             n = n + 1
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [15] = function(ins, stack, frame, labels, module) -- table.grow
+    [15] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- table.grow
         local tab = module.store.tables[ins[3] + 1]
         local n = pop(stack)
         local val = pop(stack)
@@ -1482,11 +1588,13 @@ extra_instructions = {
             end
             push(stack, start_size)
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [16] = function(ins, stack, frame, labels, module) -- table.size
+    [16] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- table.size
         push(stack, module.store.tables[ins[3] + 1].elem)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
-    [17] = function(ins, stack, frame, labels, module) -- table.fill
+    [17] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- table.fill
         local tab = module.store.tables[ins[3] + 1]
         local n = pop(stack)
         local val = pop(stack)
@@ -1501,8 +1609,11 @@ extra_instructions = {
             i = i + 1
             n = n - 1
         end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
 }
+
+
 
 -- assumes that the expression is a constant expression that does not rely on having an available frame
 local function simple_eval(expr)
@@ -1512,7 +1623,7 @@ local function simple_eval(expr)
         if i == nil then
             error(string.format("missing instruction %X", ins[1]))
         end
-        i(ins, stack, nil, nil)
+        i(ins, stack, nil, nil, nil, nil, simple_nop)
     end
     return pop(stack)
 end
@@ -1531,7 +1642,7 @@ eval_instructions_with = function(ins, stack, frame, labels, module)
         if i == nil then
             error(string.format("missing instruction 0x%X", sins[1]))
         end
-        local r, p = i(sins, stack, frame, labels, module)
+        local r, p = i(sins, stack, frame, labels, module, nil, simple_nop)
         if r then return r, p end
     end
 end
@@ -1541,14 +1652,7 @@ eval_single_with = function(ins, stack, frame, labels, module)
     if i == nil then
         error(string.format("missing instruction %x", ins[1]))
     end
-    return i(ins, stack, frame, labels, module)
-end
-
-local function find_func_name(func_addr, module)
-    if func_addr == "root" then
-        return "\"some lua thing\""
-    end
-    return "???"
+    return i(ins, stack, frame, labels, module, nil, simple_nop)
 end
 
 local debug_module
@@ -1570,29 +1674,72 @@ local function raise_error(err, stack, frames, labels, module)
     end
 end
 
+-- 0x00, 0x02, 0x03, 0x04, 0x05, 0x0B (somtimes), 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11
+local function instruction_disrupts_ins_ptr(ins)
+    local ins = ins[1]
+    return ins <= 0x11 and ins ~= 0x01
+end
+
 local function full_eval(module, funcaddr, opt_start_stack)
     local stack = opt_start_stack or {}
     local frames = { { module = module, func_addr = "root" } }
     local labels = {}
-    local current_frame_cache = top(frames)
-    invoke(funcaddr, stack, frames, labels, module, current_frame_cache)
-    current_frame_cache = top(frames)
-    current_frame_cache.ins_ptr = current_frame_cache.ins_ptr + 1
+    local current_frame = top(frames)
+    invoke(funcaddr, stack, frames, labels, module, current_frame)
+    current_frame = top(frames)
+    current_frame.ins_ptr = current_frame.ins_ptr + 1
+    local creating_instruction_cache
     while true do
-        local ins = current_frame_cache.func.body[current_frame_cache.ins_ptr]
+        local ins = current_frame.func.body[current_frame.ins_ptr]
+        --print("ins_ptr:", current_frame.ins_ptr, "ins: ", ins[1], "top_label_is_function: ", top(labels).is_function,
+        --    "other: ", ins[2], "label_stack_height: ", #labels, "current_function: ", current_frame.func_addr,
+        --    "stack height: ", #stack, "other2: ", ins[3])
         local ins_func = ins[0]
-        local error = ins_func(ins, stack, frames, labels, module, current_frame_cache)
-        if error == true then
-            current_frame_cache = top(frames)
-            error = nil
+        local result
+        if creating_instruction_cache ~= nil then
+            --print("inserting into cache, ", ins_func, " ", ins)
+            table.insert(creating_instruction_cache, ins_func)
+            table.insert(creating_instruction_cache, ins)
+            if instruction_disrupts_ins_ptr(ins) then
+                creating_instruction_cache = nil
+            end
+            result = ins_func(ins, stack, frames, labels, module, current_frame, simple_nop)
+        elseif current_frame.decoded_instructions[current_frame.ins_ptr] then
+            local decoded_instructions = current_frame.decoded_instructions[current_frame.ins_ptr]
+            local instruction_count = (#decoded_instructions) / 2
+            --print("executing instruction cache, current ins_ptr: ", current_frame.ins_ptr, " ins_ptr after increment: ",
+            --    current_frame.ins_ptr + instruction_count)
+            --for x = 1, instruction_count do
+            --    print("cache item: ", x, " instruction number: ", decoded_instructions[x * 2][1], "other: ",
+            --        decoded_instructions[x * 2][2], "other2: ", decoded_instructions[x * 2][3])
+            --end
+
+            current_frame.ins_ptr = current_frame.ins_ptr + instruction_count
+            -- it is guaranteed by construction that none of the instruction in the stream
+            -- depend on the value of the pointer, except for the last one,
+            -- by which point it will be correct again
+            result = ins_func(ins, stack, frames, labels, module, current_frame,
+                (table.unpack or unpack)(decoded_instructions))
+            --print("new stack height: ", #stack)
+        elseif not instruction_disrupts_ins_ptr(ins) then
+            --print("creating new cache")
+            creating_instruction_cache = {}
+            current_frame.decoded_instructions[current_frame.ins_ptr] = creating_instruction_cache
+            result = ins_func(ins, stack, frames, labels, module, current_frame, simple_nop)
+        else
+            result = ins_func(ins, stack, frames, labels, module, current_frame, simple_nop)
+        end
+        if result == true then
+            current_frame = top(frames)
+            result = nil
         end
         if frames[2] == nil then
             return stack
         end
-        current_frame_cache.ins_ptr = current_frame_cache.ins_ptr + 1
-        if error then
-            raise_error(error, stack, frames, labels, module)
-            return nil, -2, error
+        current_frame.ins_ptr = current_frame.ins_ptr + 1
+        if result then
+            raise_error(result, stack, frames, labels, module)
+            return nil, -2, result
         end
     end
 end
