@@ -4,11 +4,6 @@ local bit = require(require_path .. "bitops")
 
 local function simple_nop() end
 
-local function cut_dot_0(s)
-    local _, _, new = string.find(s, "(%d+)%.?0?")
-    return new
-end
-
 local function push(stack, value)
     stack[#stack + 1] = value
 end
@@ -22,6 +17,11 @@ end
 local function top(stack)
     return stack[#stack]
 end
+
+local bool_to_num = {
+    [true] = 1,
+    [false] = 0
+}
 
 local function signed(N, i)
     if i > math.pow(2, N - 1) then
@@ -129,11 +129,7 @@ local function i64_ge_u(n1, n2)
     if n1.h > n2.h then
         return 1
     elseif n1.h == n2.h then
-        if n1.l >= n2.l then
-            return 1
-        else
-            return 0
-        end
+        return bool_to_num[n1.l >= n2.l]
     else
         return 0
     end
@@ -143,11 +139,7 @@ local function i64_gt_u(n1, n2)
     if n1.h > n2.h then
         return 1
     elseif n1.h == n2.h then
-        if n1.l > n2.l then
-            return 1
-        else
-            return 0
-        end
+        return bool_to_num[n1.l > n2.l]
     else
         return 0
     end
@@ -157,11 +149,7 @@ local function i64_le_u(n1, n2)
     if n1.h < n2.h then
         return 1
     elseif n1.h == n2.h then
-        if n1.l <= n2.l then
-            return 1
-        else
-            return 0
-        end
+        return bool_to_num[n1.l <= n2.l]
     else
         return 0
     end
@@ -169,7 +157,7 @@ end
 
 local function i64_add(n1, n2)
     local low = n1.l + n2.l
-    local high = n1.h + n2.h + (low >= 4294967296 and 1 or 0)
+    local high = n1.h + n2.h + bool_to_num[low >= 4294967296]
     return {
         l = bit.band(low, 0xFFFFFFFF),
         h = bit.band(high, 0xFFFFFFFF)
@@ -178,7 +166,7 @@ end
 
 local function i64_sub(n1, n2)
     local low = n1.l - n2.l
-    local high = n1.h - n2.h - (low < 0 and 1 or 0)
+    local high = n1.h - n2.h - bool_to_num[low < 0]
     return {
         l = inv_signed(32, low),
         h = inv_signed(32, high)
@@ -458,11 +446,7 @@ instructions = {
     end,
     [0xD1] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- ref.is_null
         local val = pop(stack)
-        if val == 0 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[val == 0])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0xD2] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- ref.func
@@ -483,11 +467,10 @@ instructions = {
         local selector = pop(stack)
         local val2 = pop(stack)
         local val1 = pop(stack)
-        if selector ~= 0 then
-            push(stack, val1)
-        else
-            push(stack, val2)
-        end
+        push(stack, ({
+            [true] = val1,
+            [false] = val2,
+        })[selector ~= 0])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     -- VARIABLE INSTRUCTIONS -------------------------
@@ -715,140 +698,84 @@ instructions = {
     end,
     [0x45] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.eqz
         local n = pop(stack)
-        if n == 0 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n == 0])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x46] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.eq
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 == n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 == n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x47] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.ne
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 ~= n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 ~= n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x48] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.lt_s
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if signed(32, n1) < signed(32, n2) then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[signed(32, n1) < signed(32, n2)])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x49] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.lt_u
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 < n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 < n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x4A] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.gt_s
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if signed(32, n1) > signed(32, n2) then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[signed(32, n1) > signed(32, n2)])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x4B] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.gt_u
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 > n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 > n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x4C] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.le_s
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if signed(32, n1) <= signed(32, n2) then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[signed(32, n1) <= signed(32, n2)])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x4D] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.le_u
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 <= n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 <= n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x4E] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.ge_s
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if signed(32, n1) >= signed(32, n2) then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[signed(32, n1) >= signed(32, n2)])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x4F] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.ge_u
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 >= n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 >= n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x50] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.eqz
         local n = pop(stack)
-        if n.l == 0 and n.h == 0 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n.l == 0 and n.h == 0])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x51] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.eq
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1.l == n2.l and n1.h == n2.h then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1.l == n2.l and n1.h == n2.h])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x52] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.ne
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1.l ~= n2.l or n1.h ~= n2.h then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1.l ~= n2.l or n1.h ~= n2.h])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x53] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.lt_s
@@ -887,11 +814,7 @@ instructions = {
         if n1.h < n2.h then
             push(stack, 1)
         elseif n1.h == n2.h then
-            if n1.l < n2.l then
-                push(stack, 1)
-            else
-                push(stack, 0)
-            end
+            push(stack, bool_to_num[n1.l < n2.l])
         else
             push(stack, 0)
         end
@@ -1008,61 +931,37 @@ instructions = {
     [0x5B] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.eq
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 == n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 == n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x5C] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.ne
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 ~= n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 ~= n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x5D] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.lt
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 < n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 < n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x5E] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.gt
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 > n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 > n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x5F] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.le
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 <= n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 <= n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x60] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f32.ge
         local n2 = pop(stack)
         local n1 = pop(stack)
-        if n1 >= n2 then
-            push(stack, 1)
-        else
-            push(stack, 0)
-        end
+        push(stack, bool_to_num[n1 >= n2])
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x67] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.clz
