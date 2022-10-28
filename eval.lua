@@ -1056,25 +1056,25 @@ instructions = {
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x74] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.shl
-        local n2 = pop(stack) % 32
+        local n2 = bit.band(pop(stack), 31)
         local n1 = pop(stack)
         push(stack, bit.band(bit.lshift(n1, n2), 0xFFFFFFFF))
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x75] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.shr_s
-        local n2 = pop(stack) % 32
+        local n2 = bit.band(pop(stack), 31)
         local n1 = pop(stack)
         push(stack, bit.arshift(n1, n2))
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x76] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.shr_u
-        local n2 = pop(stack) % 32
+        local n2 = bit.band(pop(stack), 31)
         local n1 = pop(stack)
         push(stack, bit.rshift(n1, n2))
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x77] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.rotl
-        local n2 = pop(stack) % 32
+        local n2 = bit.band(pop(stack), 31)
         local n1 = pop(stack)
         push(stack, bit.lrotate(n1, n2))
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
@@ -1144,7 +1144,7 @@ instructions = {
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x86] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.shl
-        local n2 = pop(stack).l % 64
+        local n2 = bit.band(pop(stack).l, 63)
         local n1 = pop(stack)
         if n2 < 32 then
             local h = bit.bor(bit.lshift(n1.h, n2), n2 == 0 and 0 or bit.rshift(n1.l, 32 - n2))
@@ -1161,7 +1161,7 @@ instructions = {
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x87] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.shr_s
-        local n2 = pop(stack).l % 64
+        local n2 = bit.band(pop(stack).l, 63)
         local n1 = pop(stack)
         if n2 == 0 then
             push(stack, {
@@ -1188,7 +1188,7 @@ instructions = {
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x88] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.shr_u
-        local n2 = pop(stack).l % 64
+        local n2 = bit.band(pop(stack).l, 63)
         local n1 = pop(stack)
         if n2 == 0 then
             push(stack, {
@@ -1215,7 +1215,7 @@ instructions = {
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0x89] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.rotl
-        local n2 = pop(stack).l % 64
+        local n2 = bit.band(pop(stack).l, 63)
         local n1 = pop(stack)
         if n2 == 0 then
             push(stack, n1)
