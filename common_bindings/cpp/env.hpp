@@ -3,7 +3,7 @@
 
 using SSI = uint32_t;
 
-#define WALP false //toggle to false for testing, true for compiling for WALP
+#define WALP false // toggle to false for testing, true for compiling for WALP
 #if WALP
 
 extern "C"
@@ -40,12 +40,7 @@ static std::mt19937 gen(rd());
 static std::uniform_real_distribution<> dis(0.0, 1.0);
 double math_random() { return dis(gen); }
 
-double tonumber(const char *str_ptr, uint32_t size)
-{
-    double res;
-    strtod(str_ptr, (char **)&res);
-    return res;
-}
+double tonumber(const char *str_ptr, uint32_t size) { return strtod(str_ptr, (char**)str_ptr + size); }
 
 SSI tostring(double number)
 {
@@ -64,7 +59,7 @@ uint32_t get_string_len(SSI str_idx)
     }
     else
     {
-        return 0xFFFFFFFF;
+        return 0xFFFFFFFF; // -1
     }
 }
 
@@ -106,18 +101,19 @@ SSI read_line()
     str_map.try_emplace(res, std::move(str));
     return res;
 }
+
 #endif
 
-std::string read_line_str()
+std::pair<SSI, std::string> read_line_str()
 {
     SSI index = read_line();
     uint32_t str_size = get_string_len(index);
     std::string str(new char[str_size], str_size);
     write_string_to_ptr(index, str.data(), str_size);
-    return str;
+    return {index, str};
 }
 
-//convenient wrapper
+// convenient wrapper
 struct WasmString
 {
     SSI index;
