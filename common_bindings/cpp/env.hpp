@@ -1,23 +1,27 @@
 #include <cstddef>
 #include <cinttypes>
-#define WALP false //toggle to false for testing, true for compiling for WALP
 
 using SSI = uint32_t;
 
+#define WALP false //toggle to false for testing, true for compiling for WALP
 #if WALP
+
 extern "C"
 {
-
     void print(const char *str_ptr, uint32_t size);
     double math_random();
-    double tonumber(const char *str_ptr, uint32_t size);
     SSI tostring(double number);
+    double tonumber(const char *str_ptr, uint32_t size);
     uint32_t get_string_len(SSI str_idx);
     bool write_string_to_ptr(SSI str_idx, char *str, uint32_t size);
     void delete_string(SSI str_idx);
+    SSI store_string(const char *str_ptr, uint32_t size);
+    void print_ssi(SSI str_idx);
     SSI read_line();
 }
+
 #else
+
 #include <cstdio>
 #include <random>
 #include <unordered_map>
