@@ -138,8 +138,8 @@ local function fill_exports(module)
     for idx, export in pairs(module.exports) do
         local interface_export = module.EXPORTS[export.name]
         if export.desc.func then
-            interface_export.call = function(...)
-                return eval.call_function(module, export.desc.func, { ... })
+            interface_export.call = function(do_compile, ...)
+                return eval.call_function(module, export.desc.func, { ... }, do_compile)
             end
         elseif export.desc.mem then
             eval.make_memory_interface(module, export.desc.mem, interface_export)
