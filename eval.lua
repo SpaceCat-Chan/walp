@@ -2874,7 +2874,7 @@ local function full_eval(module, funcaddr, opt_start_stack, do_compile)
                     end
                 else
                     local bytecode = compile_function(addr, module)
-                    local file = io.open("func_" .. tostring(addr) .. ".bc", "wb")
+                    local file = io.open("decompiled/func_" .. tostring(addr) .. ".bc", "wb")
                     if file then
                         file:write(bytecode)
                         file:close()
