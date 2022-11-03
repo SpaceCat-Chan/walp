@@ -8,6 +8,35 @@ if bit32 then
     bit = require(require_path .. 'bitops_bit32')
 elseif bit_attempt then
     bit = require(require_path .. 'bitops_luajit')
+
+    local ffi = require("ffi")
+    function bit.to_u64(l, h)
+        return ffi.cast("uint64_t", l) + bit.lshift(ffi.cast("uint64_t", h), 32)
+    end
+
+    function bit.u64_to_i64(n)
+        return ffi.cast("int64_t", n)
+    end
+
+    function bit.i64_to_u64(n)
+        return ffi.cast("uint64_t", n)
+    end
+
+    function bit.u32_to_u64(n)
+        return ffi.cast("uint64_t", n)
+    end
+
+    function bit.i32_to_u64(n)
+        return ffi.cast("uint64_t", ffi.cast("int64_t", bit.signed(32, n)))
+    end
+
+    function bit.i16_to_u64(n)
+        return ffi.cast("uint64_t", ffi.cast("int64_t", bit.signed(16, n)))
+    end
+
+    function bit.i8_to_u64(n)
+        return ffi.cast("uint64_t", ffi.cast("int64_t", bit.signed(8, n)))
+    end
 else
     bit = require(require_path .. 'bitops_rawops')
 end
@@ -67,6 +96,35 @@ function bit.trunc(i)
     else
         return math.ceil(i)
     end
+end
+
+local __clz_tab = { 3, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 }
+__clz_tab[0] = 4
+
+function bit.clz(x)
+    local n = 0
+    if bit.band(x, -65536) == 0 then n = 16;
+        x = bit.lshift(x, 16)
+    end
+    if bit.band(x, -16777216) == 0 then n = n + 8;
+        x = bit.lshift(x, 8)
+    end
+    if bit.band(x, -268435456) == 0 then n = n + 4;
+        x = bit.lshift(x, 4)
+    end
+    n = n + __clz_tab[bit.rshift(x, 28)]
+    return n
+end
+
+local __ctz_tab = {}
+
+for i = 0, 31 do
+    __ctz_tab[bit.rshift(125613361 * bit.lshift(1, i), 27)] = i
+end
+
+function bit.ctz(x)
+    if x == 0 then return 32 end
+    return __ctz_tab[bit.rshift(bit.band(x, -x) * 125613361, 27)]
 end
 
 local bit_band   = bit.band
