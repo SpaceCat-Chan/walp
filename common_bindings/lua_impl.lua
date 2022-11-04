@@ -59,7 +59,7 @@ return function(module, alt_name, memory)
     end
 
     module.IMPORTS[alt_name].tostring = function(number)
-        return create_ssi_string(tonumber(number))
+        return create_ssi_string(tostring(number))
     end
 
     module.IMPORTS[alt_name].get_string_len = function(index)
