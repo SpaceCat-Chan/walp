@@ -37,6 +37,39 @@ elseif bit_attempt then
     function bit.i8_to_u64(n)
         return ffi.cast("uint64_t", ffi.cast("int64_t", bit.signed(8, n)))
     end
+
+    local bool_to_num = {
+        [false] = 0,
+        [true] = 1,
+    }
+    -- it turns out that all i64 ops completely mess with the stackslots, so they have to be quarantined
+    function bit.ne(a, b)
+        return bool_to_num[a ~= b]
+    end
+
+    function bit.gt_u(a, b)
+        return bool_to_num[a > b]
+    end
+
+    function bit.ge_s(a, b)
+        return bool_to_num[bit.u64_to_i64(a) >= bit.u64_to_i64(b)]
+    end
+
+    function bit.ge_u(a, b)
+        return bool_to_num[a >= b]
+    end
+
+    function bit.sub(a, b)
+        return a - b
+    end
+
+    function bit.mul(a, b)
+        return a * b
+    end
+
+    function bit.div_u(a, b)
+        return a / b
+    end
 else
     bit = require(require_path .. 'bitops_rawops')
 end
