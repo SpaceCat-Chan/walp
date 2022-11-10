@@ -260,7 +260,7 @@ local function sLEB64(inseq, ptr)
         low = bit.extend(7 * #bytes, 32, low)
         high = bit.arshift(bit.band(low, 0x80000000), 31)
     else
-        high = bit.extend((7 * #bytes + 3) - 32, 32, high)
+        high = bit.extend((7 * #bytes) - 32, 32, high)
     end
     return { h = high, l = low }, ptr
 end

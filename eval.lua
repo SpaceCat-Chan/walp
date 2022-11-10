@@ -2570,42 +2570,38 @@ local compile_instruction = {
     end,
     [0x52] = function(bytecode, exec_data, instruction, ins_ptr) -- i64.ne
         local stack_top = exec_data.stack_start + #exec_data.stack_data
-        bytecode:emit(bc.BC.ISNEV, stack_top - 1, stack_top)
-        emit_bool_to_num_lookup(bytecode, stack_top - 1, stack_top, tostring(ins_ptr))
+        bytecode:op_move(stack_top + 1, stack_top - 1)
+        bytecode:op_move(stack_top + 2, stack_top)
+        bytecode:op_tget(stack_top - 1, 1, "S", bytecode:const("ne"))
+        bytecode:op_call(stack_top - 1, 1, 2)
         pop(exec_data.stack_data)
         exec_data.stack_data[#exec_data.stack_data] = "i32"
     end,
     [0x56] = function(bytecode, exec_data, instruction, ins_ptr) -- i64.gt_u
         local stack_top = exec_data.stack_start + #exec_data.stack_data
-        bytecode:op_tget(stack_top + 1, 1, "S", bytecode:const("u64_to_i64"))
-        bytecode:op_move(stack_top + 3, stack_top - 1)
-        bytecode:op_call(stack_top + 1, 1, 1)
-        bytecode:op_tget(stack_top + 2, 1, "S", bytecode:const("u64_to_i64"))
-        bytecode:op_move(stack_top + 4, stack_top)
-        bytecode:op_call(stack_top + 2, 1, 1)
-        bytecode:emit(bc.BC.ISGT, stack_top + 1, stack_top + 2)
-        emit_bool_to_num_lookup(bytecode, stack_top - 1, stack_top, tostring(ins_ptr))
+        bytecode:op_move(stack_top + 1, stack_top - 1)
+        bytecode:op_move(stack_top + 2, stack_top)
+        bytecode:op_tget(stack_top - 1, 1, "S", bytecode:const("gt_u"))
+        bytecode:op_call(stack_top - 1, 1, 2)
         pop(exec_data.stack_data)
         exec_data.stack_data[#exec_data.stack_data] = "i32"
     end,
     -- WARNING: KNOWN BUG, NO IDEA WHATS WRONG
     [0x59] = function(bytecode, exec_data, instruction, ins_ptr) -- i64.ge_s
         local stack_top = exec_data.stack_start + #exec_data.stack_data
-        bytecode:op_tget(stack_top + 1, 1, "S", bytecode:const("u64_to_i64"))
-        bytecode:op_move(stack_top + 3, stack_top - 1)
-        bytecode:op_call(stack_top + 1, 1, 1)
-        bytecode:op_tget(stack_top + 2, 1, "S", bytecode:const("u64_to_i64"))
-        bytecode:op_move(stack_top + 4, stack_top)
-        bytecode:op_call(stack_top + 2, 1, 1)
-        bytecode:emit(bc.BC.ISGE, stack_top + 1, stack_top + 2)
-        emit_bool_to_num_lookup(bytecode, stack_top - 1, stack_top, tostring(ins_ptr))
+        bytecode:op_move(stack_top + 1, stack_top - 1)
+        bytecode:op_move(stack_top + 2, stack_top)
+        bytecode:op_tget(stack_top - 1, 1, "S", bytecode:const("ge_s"))
+        bytecode:op_call(stack_top - 1, 1, 2)
         pop(exec_data.stack_data)
         exec_data.stack_data[#exec_data.stack_data] = "i32"
     end,
     [0x5A] = function(bytecode, exec_data, instruction, ins_ptr) -- i64.ge_u
         local stack_top = exec_data.stack_start + #exec_data.stack_data
-        bytecode:emit(bc.BC.ISGE, stack_top - 1, stack_top)
-        emit_bool_to_num_lookup(bytecode, stack_top - 1, stack_top, tostring(ins_ptr))
+        bytecode:op_move(stack_top + 1, stack_top - 1)
+        bytecode:op_move(stack_top + 2, stack_top)
+        bytecode:op_tget(stack_top - 1, 1, "S", bytecode:const("ge_u"))
+        bytecode:op_call(stack_top - 1, 1, 2)
         pop(exec_data.stack_data)
         exec_data.stack_data[#exec_data.stack_data] = "i32"
     end,
@@ -2723,17 +2719,26 @@ local compile_instruction = {
     end,
     [0x7D] = function(bytecode, exec_data, instruction, ins_ptr) -- i64.sub
         local stack_top = exec_data.stack_start + #exec_data.stack_data
-        bytecode:op_sub(stack_top - 1, stack_top - 1, stack_top)
+        bytecode:op_move(stack_top + 1, stack_top - 1)
+        bytecode:op_move(stack_top + 2, stack_top)
+        bytecode:op_tget(stack_top - 1, 1, "S", bytecode:const("sub"))
+        bytecode:op_call(stack_top - 1, 1, 2)
         pop(exec_data.stack_data)
     end,
     [0x7E] = function(bytecode, exec_data, instruction, ins_ptr) -- i64.mul
         local stack_top = exec_data.stack_start + #exec_data.stack_data
-        bytecode:op_mul(stack_top - 1, stack_top - 1, stack_top)
+        bytecode:op_move(stack_top + 1, stack_top - 1)
+        bytecode:op_move(stack_top + 2, stack_top)
+        bytecode:op_tget(stack_top - 1, 1, "S", bytecode:const("mul"))
+        bytecode:op_call(stack_top - 1, 1, 2)
         pop(exec_data.stack_data)
     end,
     [0x80] = function(bytecode, exec_data, instruction, ins_ptr) -- i64.div_u
         local stack_top = exec_data.stack_start + #exec_data.stack_data
-        bytecode:op_div(stack_top - 1, stack_top - 1, stack_top)
+        bytecode:op_move(stack_top + 1, stack_top - 1)
+        bytecode:op_move(stack_top + 2, stack_top)
+        bytecode:op_tget(stack_top - 1, 1, "S", bytecode:const("div_u"))
+        bytecode:op_call(stack_top - 1, 1, 2)
         pop(exec_data.stack_data)
     end,
     [0x89] = function(bytecode, exec_data, instruction, ins_ptr) -- i64.rotl
@@ -2906,6 +2911,12 @@ local function compile_function(func_addr, module)
     bytecode:op_call(stack_top + 1, 1, 1)
     bytecode:op_move(1, stack_top + 1)
 
+    if func_addr == 124 then
+        local stack_top = #exec_data.stack_data + exec_data.stack_start
+        bytecode:op_gget(stack_top + 1, "error")
+        bytecode:op_load(stack_top + 3, "oops, panicked")
+        bytecode:op_call(stack_top + 1, 0, 1)
+    end
 
     -- and now we are ready to execute instructions
     for k, instruction in ipairs(func.code.body) do
@@ -2916,24 +2927,14 @@ local function compile_function(func_addr, module)
         bytecode:line(k)
         local stack_top = #exec_data.stack_data + exec_data.stack_start
         bytecode:op_gget(stack_top + 1, "print")
-        bytecode:op_load(stack_top + 3, "func_" .. tostring(func_addr) .. " ins_" .. tostring(k))
-        bytecode:op_call(stack_top + 1, 0, 1)
-        if func_addr == 156 then
-            bytecode:op_gget(stack_top + 1, "require")
-            bytecode:op_load(stack_top + 3, require_path .. "bitops")
-            bytecode:op_call(stack_top + 1, 1, 1)
-            bytecode:op_move(1, stack_top + 1)
-        end
+        bytecode:op_load(stack_top + 3, "func_" .. tostring(func_addr))
+        bytecode:op_load(stack_top + 4, "ins")
+        bytecode:op_load(stack_top + 5, k)
+        bytecode:op_call(stack_top + 1, 0, 3)
         local a = stack_top - 3
         if a < exec_data.stack_start + 1 then
             a = exec_data.stack_start + 1
         end
-        bytecode:op_gget(stack_top + 1, "print")
-        bytecode:op_move(stack_top + 3, 1)
-        bytecode:op_call(stack_top + 1, 0, 1)
-        bytecode:op_gget(stack_top + 1, "print")
-        bytecode:op_move(stack_top + 3, 5)
-        bytecode:op_call(stack_top + 1, 0, 1)
         for x = stack_top, a, -1 do
             bytecode:op_gget(stack_top + 1, "print")
             bytecode:op_move(stack_top + 3, x)

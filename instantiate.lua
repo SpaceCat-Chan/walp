@@ -147,11 +147,11 @@ local function fill_exports(module)
             interface_export.elements = module.store.tables.elem
         elseif export.desc.global then
             interface_export.get = function()
-                return module.store.globals[export.desc.global].val
+                return module.store.globals[export.desc.global + 1].val
             end
-            if module.store.globals[export.desc.global].type.is_mutable then
+            if module.store.globals[export.desc.global + 1].type.is_mutable then
                 interface_export.set = function(set_to)
-                    module.store.globals[export.desc.global].val = set_to
+                    module.store.globals[export.desc.global + 1].val = set_to
                 end
             end
         end
