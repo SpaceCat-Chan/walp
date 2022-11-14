@@ -1869,6 +1869,7 @@ local compile_instruction = {
         local stack_top = #exec_data.stack_data + exec_data.stack_start
 
         -- grab the function
+        bytecode:emit(bc.BC.ADDVN, stack_top, stack_top, bytecode:const(1))
         bytecode:op_tget(stack_top + 1, 0, "S", bytecode:const("store"))
         bytecode:op_tget(stack_top + 1, stack_top + 1, "S", bytecode:const("tables"))
         bytecode:emit(bc.BC.TGETB, stack_top + 1, stack_top + 1, instruction[3] + 1)
