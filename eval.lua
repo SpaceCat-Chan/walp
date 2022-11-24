@@ -1543,9 +1543,20 @@ local function load_memory_array(bytecode, target_location)
     bytecode:op_tget(target_location, target_location, "S", bytecode:const("data"))
 end
 
-local function load_bytes_from_mem(bytecode, address, memory_location, target_location, scratch, offset, byte_count)
+local function load_bytes_from_mem(bytecode, address, memory_location, target_location, scratch,
+                                   offset, byte_count, past_the_end_check)
     bytecode:op_load(scratch, offset)
     bytecode:op_add(scratch, scratch, address)
+    if past_the_end_check then
+        bytecode:op_len(scratch + 1, memory_location)
+        bytecode:emit(bc.BC.ISLT, scratch, scratch + 1)
+        local marker = {}
+        bytecode:jump(marker, scratch + 1)
+        bytecode:op_gget(scratch, "error")
+        bytecode:op_load(scratch + 2, "attempt to access out of range memory")
+        bytecode:op_call(scratch, 0, 1)
+        bytecode:here(marker)
+    end
     bytecode:op_load(target_location, 0)
     for x = 1, byte_count do
         bytecode:emit(bc.BC.ADDVN, scratch + 3, scratch, bytecode:const(x))
@@ -1557,9 +1568,20 @@ local function load_bytes_from_mem(bytecode, address, memory_location, target_lo
     end
 end
 
-local function store_bytes_to_mem(bytecode, address, memory_location, value_location, scratch, offset, byte_count)
+local function store_bytes_to_mem(bytecode, address, memory_location, value_location, scratch, offset
+                                  , byte_count, past_the_end_check)
     bytecode:op_load(scratch, offset)
     bytecode:op_add(scratch, scratch, address)
+    if past_the_end_check then
+        bytecode:op_len(scratch + 1, memory_location)
+        bytecode:emit(bc.BC.ISLT, scratch, scratch + 1)
+        local marker = {}
+        bytecode:jump(marker, scratch + 1)
+        bytecode:op_gget(scratch, "error")
+        bytecode:op_load(scratch + 2, "attempt to access out of range memory")
+        bytecode:op_call(scratch, 0, 1)
+        bytecode:here(marker)
+    end
     for x = 1, byte_count do
         bytecode:op_gget(scratch + 1, "tonumber")
         bytecode:op_tget(scratch + 3, 1, "S", bytecode:const("band"))
@@ -2005,7 +2027,8 @@ local compile_instruction = {
             stack_top,
             stack_top + 2,
             instruction[2][2],
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         exec_data.stack_data[#exec_data.stack_data] = "i32"
     end,
@@ -2020,7 +2043,8 @@ local compile_instruction = {
             stack_top + 2,
             stack_top + 3,
             instruction[2][2],
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         load_bytes_from_mem(
             bytecode,
@@ -2029,7 +2053,8 @@ local compile_instruction = {
             stack_top + 3,
             stack_top + 4,
             instruction[2][2] + 4,
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top, 1, "S", bytecode:const("to_u64"))
         bytecode:op_call(stack_top, 1, 2)
@@ -2046,7 +2071,8 @@ local compile_instruction = {
             stack_top + 4,
             stack_top + 5,
             instruction[2][2],
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top + 2, 1, "S", bytecode:const("UInt32ToFloat"))
         bytecode:op_call(stack_top + 2, 1, 1)
@@ -2064,7 +2090,8 @@ local compile_instruction = {
             stack_top + 4,
             stack_top + 5,
             instruction[2][2],
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         load_bytes_from_mem(
             bytecode,
@@ -2073,7 +2100,8 @@ local compile_instruction = {
             stack_top + 5,
             stack_top + 6,
             instruction[2][2] + 4,
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top + 2, 1, "S", bytecode:const("UInt32sToDouble"))
         bytecode:op_call(stack_top + 2, 1, 2)
@@ -2090,7 +2118,8 @@ local compile_instruction = {
             stack_top + 4,
             stack_top + 5,
             instruction[2][2],
-            1
+            1,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top + 2, 1, "S", bytecode:const("extend_8_to_32"))
         bytecode:op_call(stack_top + 2, 1, 1)
@@ -2107,7 +2136,8 @@ local compile_instruction = {
             stack_top,
             stack_top + 2,
             instruction[2][2],
-            1
+            1,
+            exec_data.compile_settings.past_the_end_check
         )
         exec_data.stack_data[#exec_data.stack_data] = "i32"
     end,
@@ -2122,7 +2152,8 @@ local compile_instruction = {
             stack_top + 4,
             stack_top + 5,
             instruction[2][2],
-            2
+            2,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top + 2, 1, "S", bytecode:const("extend_16_to_32"))
         bytecode:op_call(stack_top + 2, 1, 1)
@@ -2139,7 +2170,8 @@ local compile_instruction = {
             stack_top,
             stack_top + 2,
             instruction[2][2],
-            2
+            2,
+            exec_data.compile_settings.past_the_end_check
         )
         exec_data.stack_data[#exec_data.stack_data] = "i32"
     end,
@@ -2153,7 +2185,8 @@ local compile_instruction = {
             stack_top + 2,
             stack_top + 3,
             instruction[2][2],
-            1
+            1,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top, 1, "S", bytecode:const("i8_to_u64"))
         bytecode:op_call(stack_top, 1, 1)
@@ -2169,7 +2202,8 @@ local compile_instruction = {
             stack_top + 2,
             stack_top + 3,
             instruction[2][2],
-            1
+            1,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top, 1, "S", bytecode:const("u32_to_u64"))
         bytecode:op_call(stack_top, 1, 1)
@@ -2185,7 +2219,8 @@ local compile_instruction = {
             stack_top + 2,
             stack_top + 3,
             instruction[2][2],
-            2
+            2,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top, 1, "S", bytecode:const("i16_to_u64"))
         bytecode:op_call(stack_top, 1, 1)
@@ -2201,7 +2236,8 @@ local compile_instruction = {
             stack_top + 2,
             stack_top + 3,
             instruction[2][2],
-            2
+            2,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top, 1, "S", bytecode:const("u32_to_u64"))
         bytecode:op_call(stack_top, 1, 1)
@@ -2217,7 +2253,8 @@ local compile_instruction = {
             stack_top + 2,
             stack_top + 3,
             instruction[2][2],
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top, 1, "S", bytecode:const("i32_to_u64"))
         bytecode:op_call(stack_top, 1, 1)
@@ -2233,7 +2270,8 @@ local compile_instruction = {
             stack_top + 2,
             stack_top + 3,
             instruction[2][2],
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top, 1, "S", bytecode:const("u32_to_u64"))
         bytecode:op_call(stack_top, 1, 1)
@@ -2249,7 +2287,8 @@ local compile_instruction = {
             stack_top,
             stack_top + 2,
             instruction[2][2],
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         pop(exec_data.stack_data)
         pop(exec_data.stack_data)
@@ -2264,7 +2303,8 @@ local compile_instruction = {
             stack_top,
             stack_top + 2,
             instruction[2][2],
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         bytecode:op_tget(stack_top + 2, 1, "S", bytecode:const("rshift"))
         bytecode:op_move(stack_top + 4, stack_top)
@@ -2277,7 +2317,8 @@ local compile_instruction = {
             stack_top + 2,
             stack_top + 3,
             instruction[2][2] + 4,
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         pop(exec_data.stack_data)
         pop(exec_data.stack_data)
@@ -2295,7 +2336,8 @@ local compile_instruction = {
             stack_top + 1,
             stack_top + 3,
             instruction[2][2],
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         pop(exec_data.stack_data)
         pop(exec_data.stack_data)
@@ -2313,7 +2355,8 @@ local compile_instruction = {
             stack_top + 1,
             stack_top + 4,
             instruction[2][2],
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         store_bytes_to_mem(
             bytecode,
@@ -2322,7 +2365,8 @@ local compile_instruction = {
             stack_top + 2,
             stack_top + 4,
             instruction[2][2] + 4,
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         pop(exec_data.stack_data)
         pop(exec_data.stack_data)
@@ -2337,7 +2381,8 @@ local compile_instruction = {
             stack_top,
             stack_top + 2,
             instruction[2][2],
-            1
+            1,
+            exec_data.compile_settings.past_the_end_check
         )
         pop(exec_data.stack_data)
         pop(exec_data.stack_data)
@@ -2352,7 +2397,8 @@ local compile_instruction = {
             stack_top,
             stack_top + 2,
             instruction[2][2],
-            2
+            2,
+            exec_data.compile_settings.past_the_end_check
         )
         pop(exec_data.stack_data)
         pop(exec_data.stack_data)
@@ -2367,7 +2413,8 @@ local compile_instruction = {
             stack_top,
             stack_top + 2,
             instruction[2][2],
-            1
+            1,
+            exec_data.compile_settings.past_the_end_check
         )
         pop(exec_data.stack_data)
         pop(exec_data.stack_data)
@@ -2382,7 +2429,8 @@ local compile_instruction = {
             stack_top,
             stack_top + 2,
             instruction[2][2],
-            2
+            2,
+            exec_data.compile_settings.past_the_end_check
         )
         pop(exec_data.stack_data)
         pop(exec_data.stack_data)
@@ -2397,7 +2445,8 @@ local compile_instruction = {
             stack_top,
             stack_top + 2,
             instruction[2][2],
-            4
+            4,
+            exec_data.compile_settings.past_the_end_check
         )
         pop(exec_data.stack_data)
         pop(exec_data.stack_data)
@@ -2795,6 +2844,7 @@ local function compile_function(func_addr, module)
     exec_data.stashing_locals = (#exec_data.locals + #exec_data.args) > 35
     exec_data.stack_start = (exec_data.stashing_locals and 1 or (#exec_data.locals + #exec_data.args)) + 2
     exec_data.stack_data = {}
+    exec_data.compile_settings = module.compile_settings
 
     --[[
         label format:
@@ -2907,13 +2957,6 @@ local function compile_function(func_addr, module)
     bytecode:op_call(stack_top + 1, 1, 1)
     bytecode:op_move(1, stack_top + 1)
 
-    if func_addr == 124 then
-        local stack_top = #exec_data.stack_data + exec_data.stack_start
-        bytecode:op_gget(stack_top + 1, "error")
-        bytecode:op_load(stack_top + 3, "oops, panicked")
-        bytecode:op_call(stack_top + 1, 0, 1)
-    end
-
     -- and now we are ready to execute instructions
     for k, instruction in ipairs(func.code.body) do
         local compiler = compile_instruction[instruction[1]]
@@ -2963,8 +3006,8 @@ local function instruction_disrupts_ins_ptr(ins)
     return ins <= 0x11 and ins ~= 0x01
 end
 
-local function full_eval(module, funcaddr, opt_start_stack, do_compile)
-    if do_compile then
+local function full_eval(module, funcaddr, opt_start_stack)
+    if module.compile_settings.use_magic_bytecode_jit then
         if not module.compiled then
             module.compiled = {}
             for addr, func in pairs(module.store.funcs) do
@@ -3098,11 +3141,11 @@ local function call_start(module)
     end
 end
 
-local function call_function(module, funcidx, args, do_compile)
-    if do_compile then
-        return full_eval(module, funcidx, args, do_compile)
+local function call_function(module, funcidx, args)
+    if module.compile_settings.use_magic_bytecode_jit then
+        return full_eval(module, funcidx, args)
     else
-        full_eval(module, funcidx, args, false)
+        full_eval(module, funcidx, args)
         return (table.unpack or unpack)(args)
     end
 end
