@@ -1577,13 +1577,11 @@ end
 
 local function emit_bool_to_num_lookup(bytecode, target, scratch, basename, should_print)
     bytecode:jump(basename .. "t", scratch)
-    bytecode:op_load(target, false)
+    bytecode:op_load(target, 0)
     bytecode:jump(basename .. "f", scratch)
     bytecode:here(basename .. "t")
-    bytecode:op_load(target, true)
+    bytecode:op_load(target, 1)
     bytecode:here(basename .. "f")
-    bytecode:op_tdup(scratch, 0)
-    bytecode:emit(bc.BC.TGETV, target, scratch, target)
 end
 
 local compile_instruction = {
@@ -2014,8 +2012,6 @@ local compile_instruction = {
     [0x29] = function(bytecode, exec_data, instruction, ins_ptr) -- i64.load
         local stack_top = exec_data.stack_start + #exec_data.stack_data
 
-        bytecode:op_load(stack_top + 1, "line_" .. tostring(ins_ptr))
-
         load_memory_array(bytecode, stack_top + 1)
         load_bytes_from_mem(
             bytecode,
@@ -2102,7 +2098,6 @@ local compile_instruction = {
         exec_data.stack_data[#exec_data.stack_data] = "i32"
     end,
     [0x2D] = function(bytecode, exec_data, instruction, ins_ptr) -- i32.load8_u
-
         local stack_top = exec_data.stack_start + #exec_data.stack_data
         load_memory_array(bytecode, stack_top + 1)
         load_bytes_from_mem(
@@ -2433,10 +2428,10 @@ local compile_instruction = {
         local basename = tostring(ins_ptr)
         bytecode:op_tget(stack_top + 3, stack_top + 1, "S", bytecode:const("type"))
         bytecode:op_tget(stack_top + 3, stack_top + 3, "S", bytecode:const("max"))
+        bytecode:op_add(stack_top, stack_top, stack_top + 2)
         bytecode:emit(bc.BC.ISEQP, stack_top + 3, 0)
         bytecode:jump(basename .. "success", stack_top + 4)
-        bytecode:op_add(stack_top + 4, stack_top, stack_top + 2)
-        bytecode:emit(bc.BC.ISLT, stack_top + 3, stack_top + 4)
+        bytecode:emit(bc.BC.ISGE, stack_top + 3, stack_top)
         bytecode:jump(basename .. "success", stack_top + 4)
         bytecode:op_load(stack_top, 0xFFFFFFFF)
         bytecode:jump(basename .. "instruction_done", stack_top + 1)
@@ -2926,21 +2921,35 @@ local function compile_function(func_addr, module)
             error(string.format("can't compile instruction 0x%X yet!", instruction[1]))
         end
         bytecode:line(k)
-        local stack_top = #exec_data.stack_data + exec_data.stack_start
-        bytecode:op_gget(stack_top + 1, "print")
-        bytecode:op_load(stack_top + 3, "func_" .. tostring(func_addr))
-        bytecode:op_load(stack_top + 4, "ins")
-        bytecode:op_load(stack_top + 5, k)
-        bytecode:op_call(stack_top + 1, 0, 3)
-        local a = stack_top - 3
-        if a < exec_data.stack_start + 1 then
-            a = exec_data.stack_start + 1
-        end
-        for x = stack_top, a, -1 do
-            bytecode:op_gget(stack_top + 1, "print")
-            bytecode:op_move(stack_top + 3, x)
-            bytecode:op_call(stack_top + 1, 0, 1)
-        end
+        --if func_addr ~= 49 then
+        --    local stack_top = #exec_data.stack_data + exec_data.stack_start
+        --    bytecode:op_gget(stack_top + 1, "print")
+        --    bytecode:op_load(stack_top + 3, "func_" .. tostring(func_addr))
+        --    bytecode:op_load(stack_top + 4, "ins")
+        --    bytecode:op_load(stack_top + 5, k)
+        --    bytecode:op_call(stack_top + 1, 0, 3)
+        --    --local a = stack_top - 3
+        --    --if a < exec_data.stack_start + 1 then
+        --    --    a = exec_data.stack_start + 1
+        --    --end
+        --    --for x = stack_top, a, -1 do
+        --    --    bytecode:op_gget(stack_top + 1, "print")
+        --    --    bytecode:op_move(stack_top + 3, x)
+        --    --    bytecode:op_call(stack_top + 1, 0, 1)
+        --    --end
+        --    --for x = exec_data.stack_start - 1, 2, -1 do
+        --    --    bytecode:op_gget(stack_top + 1, "print")
+        --    --    bytecode:op_move(stack_top + 3, x)
+        --    --    bytecode:op_call(stack_top + 1, 0, 1)
+        --    --end
+        --    for x = 2, stack_top do repeat
+        --            if x == exec_data.stack_start then break end
+        --            bytecode:op_gget(stack_top + 3, "print")
+        --            bytecode:op_move(stack_top + 5, x)
+        --            bytecode:op_call(stack_top + 3, 0, 1)
+        --        until true
+        --    end
+        --end
 
         compiler(bytecode, exec_data, instruction, k)
     end
