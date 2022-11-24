@@ -76,6 +76,7 @@ parse = function(filename, parse_debug_info)
             print("walp error: failed to load debug parser")
         end
     end
+    parsed[3].compile_settings = {}
     return parsed[3]
 end
 
