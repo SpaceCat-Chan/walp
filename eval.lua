@@ -18,9 +18,8 @@ local function top(stack)
     return stack[#stack]
 end
 
-local bool_to_num = {
-    [true] = 1,
-    [false] = 0
+local bool_to_num (x) {
+    return x and 1 or 0
 }
 
 local function signed(N, i)
