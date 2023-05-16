@@ -1,25 +1,5 @@
 local require_path = (...):match("(.-)[^%.]+$")
-local bit_conv = require(require_path .. "bitconverter")
 local bit = require(require_path .. 'bitops')
-
-
-local function signed(N, i)
-    if i > math.pow(2, N - 1) then
-        return i - math.pow(2, N)
-    end
-    return i
-end
-
-local function inv_signed(N, i)
-    if i < 0 then
-        return i + math.pow(2, N)
-    end
-    return i
-end
-
-local function extend(M, N, i)
-    return inv_signed(N, signed(M, i))
-end
 
 local take_mt = {
     __call = function(this, inseq, ptr)
@@ -234,7 +214,7 @@ end
 local function sLEB(inseq, ptr)
     local bytes, ptr = LEBlist(inseq, ptr)
     if bytes == nil then return nil end
-    local result = extend(7 * #bytes, 32, interpuLEB(bytes))
+    local result = bit.extend(7 * #bytes, 32, interpuLEB(bytes))
 
     return result, ptr
 end
@@ -277,10 +257,10 @@ local function sLEB64(inseq, ptr)
     end
     local high, low = interpuLEB64(bytes)
     if #bytes < 5 then
-        low = extend(7 * #bytes, 32, low)
+        low = bit.extend(7 * #bytes, 32, low)
         high = bit.arshift(bit.band(low, 0x80000000), 31)
     else
-        high = extend((7 * #bytes + 3) - 32, 32, high)
+        high = bit.extend((7 * #bytes) - 32, 32, high)
     end
     return { h = high, l = low }, ptr
 end
@@ -398,14 +378,14 @@ local index = uLEB
 local memarg = tuple(uLEB, uLEB)
 
 local function u8sToFloat(u8s)
-    local u32 = bit_conv.UInt8sToUInt32(u8s[1], u8s[2], u8s[3], u8s[4])
-    return bit_conv.UInt32ToFloat(u32)
+    local u32 = bit.UInt8sToUInt32(u8s[1], u8s[2], u8s[3], u8s[4])
+    return bit.UInt32ToFloat(u32)
 end
 
 local function u8sToDouble(u8s)
-    local u32_low = bit_conv.UInt8sToUInt32(u8s[1], u8s[2], u8s[3], u8s[4])
-    local u32_high = bit_conv.UInt8sToUInt32(u8s[5], u8s[6], u8s[7], u8s[8])
-    return bit_conv.UInt32sToDouble(u32_low, u32_high)
+    local u32_low = bit.UInt8sToUInt32(u8s[1], u8s[2], u8s[3], u8s[4])
+    local u32_high = bit.UInt8sToUInt32(u8s[5], u8s[6], u8s[7], u8s[8])
+    return bit.UInt32sToDouble(u32_low, u32_high)
 end
 
 local function instr(inseq, ptr)
