@@ -19,9 +19,9 @@ local function top(stack)
     return stack[#stack]
 end
 
-local bool_to_num (x) {
-    return x and 1 or 0
-}
+local function bool_to_num (x)
+    return x and 1 or 0;
+end
 
 local function expand_type(t, module)
     if t == -1 then
