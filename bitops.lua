@@ -86,6 +86,10 @@ function bit.signed_32(i)
     return bit.signed(32, i)
 end
 
+function bit.inv_signed_32(i)
+    return bit.inv_signed(32, i)
+end
+
 function bit.inv_signed(N, i)
     if i < 0 then
         return i + math.pow(2, N)

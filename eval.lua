@@ -281,27 +281,28 @@ instructions = {
         push(labels, { type = new_label, break_pos = top(frame).ins_ptr + 1, stack_height = #stack })
     end,
     [0x04] = function(ins, stack, frame, labels, module) -- if else
-        local new_label = expand_type(ins, module)
+        local new_label = expand_type(ins[2], module)
         local c = pop(stack)
-        push(labels, { type = new_label, break_pos = top(frame).ins_ptr + ins[3], stack_height = #stack })
         if c == 0 then
             top(frame).ins_ptr = top(frame).ins_ptr + ins[4]
+        else
+            push(labels, { type = new_label, break_pos = top(frame).ins_ptr + ins[3], stack_height = #stack })
         end
     end,
     [0x05] = function(ins, stack, frame, labels) -- else
         top(frame).ins_ptr = top(labels).break_pos - 2
     end,
-    [0x0B] = function(ins, stack, frame, labels) -- end
-        local label = pop(labels)
+    [0x0B] = function(ins, stack, frame, labels, module, frame_cache) -- end
+        local label = top(labels)
         if label.is_function then
-            pop(frame)
-            return true
+            return instructions[0x0F](ins, stack, frame, labels, module, frame_cache)
         end
+        pop(labels)
     end,
     [0x0C] = function(ins, stack, frame, labels, module, frame_cache) -- br
         local label = labels[#labels - ins[2]]
         if label.is_function then
-            return instructions[0x0F](ins, stack, frame, label, frame_cache)
+            return instructions[0x0F](ins, stack, frame, labels, module, frame_cache)
         end
         local pop_count = #label.type.to
         local p = {}
@@ -1226,6 +1227,10 @@ instructions = {
         push(stack, pop(stack).l)
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
+    [0xA9] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).trunc_u
+        push(stack, math.floor(pop(stack)))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
+    end,
     [0xAC] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.extend_i32_s
         local n = pop(stack)
         push(stack, { l = n, h = bit.arshift(n, 31) })
@@ -1236,10 +1241,16 @@ instructions = {
         push(stack, { l = n, h = 0 })
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
+    [0xB3] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).convert_i32_u
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
+    end,
     [0xB5] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).convert_i64_u
         local n = pop(stack)
         local res = n.h * 4294967296 + n.l
         push(stack, res)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
+    end,
+    [0xB6] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- float convert
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0xBC] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.reinterpret_f32
@@ -1279,6 +1290,8 @@ instructions[0x1C] = instructions[0x1B]
 instructions[0x42] = instructions[0x41]
 instructions[0x43] = instructions[0x41]
 instructions[0x44] = instructions[0x41]
+instructions[0xAA] = instructions[0xA8]
+instructions[0xAB] = instructions[0xA9]
 
 
 for x = 0x5B, 0x60 do
@@ -1624,13 +1637,13 @@ local compile_instruction = {
             type = type,
             result_type = type.to,
             continue_at_end = true,
-            stack_height = stack_top + exec_data.stack_start - #type.from
+            stack_height = #exec_data.stack_data - #type.from
         }
         push(exec_data.labels, label)
 
         -- validation
         for k, v in ipairs(label.type.from) do
-            assert(exec_data.stack_data[stack_top - #label.type.from + k] == v,
+            assert(exec_data.stack_data[#exec_data.stack_data - #label.type.from + k] == v,
                 "validation failed! values on the stack are of the wrong type for the block instruction! (func_addr: " ..
                 tostring(exec_data.func_addr) .. ", ins_ptr: " .. label.break_point .. ")")
         end
@@ -1642,14 +1655,14 @@ local compile_instruction = {
             break_point = tostring(ins_ptr),
             type = type,
             result_type = type.from,
-            stack_height = stack_top + exec_data.stack_start - #type.from
+            stack_height = #exec_data.stack_data - #type.from
         }
         push(exec_data.labels, label)
         bytecode:here(label.break_point)
 
         -- validation
         for k, v in ipairs(label.type.from) do
-            assert(exec_data.stack_data[stack_top - #label.type.from + k] == v,
+            assert(exec_data.stack_data[#exec_data.stack_data - #label.type.from + k] == v,
                 "validation failed! values on the stack are of the wrong type for the loop instruction! (func_addr: " ..
                 tostring(exec_data.func_addr) .. ", ins_ptr: " .. label.break_point .. ")")
         end
@@ -1663,7 +1676,7 @@ local compile_instruction = {
             type = type,
             result_type = type.to,
             continue_at_end = true,
-            stack_height = stack_top + exec_data.stack_start - #type.from - 1
+            stack_height = #exec_data.stack_data - #type.from - 1
         }
         push(exec_data.labels, label)
 
@@ -1678,7 +1691,7 @@ local compile_instruction = {
 
         stack_top = stack_top - 1
         for k, v in ipairs(label.type.from) do
-            assert(exec_data.stack_data[stack_top - #label.type.from + k] == v,
+            assert(exec_data.stack_data[#exec_data.stack_data - #label.type.from + k] == v,
                 "validation failed! values on the stack are of the wrong type for the loop instruction! (func_addr: " ..
                 tostring(exec_data.func_addr) .. ", ins_ptr: " .. label.break_point .. ")")
         end
@@ -1713,7 +1726,7 @@ local compile_instruction = {
         while #exec_data.stack_data > label.stack_height do
             pop(exec_data.stack_data)
         end
-        for x = 1, #label.type.from do
+        for x = 1, #label.type.to do
             push(exec_data.stack_data, label.type.to[x])
         end
 
@@ -1729,7 +1742,7 @@ local compile_instruction = {
 
         local return_count = #label.result_type
 
-        local target_stack_height = label.stack_height + return_count
+        local target_stack_height = label.stack_height + return_count + exec_data.stack_start
         local stack_top = exec_data.stack_start + #exec_data.stack_data
         local offset = stack_top - target_stack_height
         if offset ~= 0 then
@@ -1742,7 +1755,7 @@ local compile_instruction = {
 
         -- validation
         for k, v in ipairs(label.result_type) do
-            assert(exec_data.stack_data[stack_top - #label.result_type + k] == v,
+            assert(exec_data.stack_data[#exec_data.stack_data - #label.result_type + k] == v,
                 "validation failed! values on the stack are of the wrong type for the br instruction! (func_addr: " ..
                 tostring(exec_data.func_addr) .. ", ins_ptr: " .. tostring(ins_ptr) .. ")")
         end
@@ -1752,7 +1765,7 @@ local compile_instruction = {
 
         local return_count = #label.result_type
 
-        local target_stack_height = label.stack_height + return_count
+        local target_stack_height = label.stack_height + return_count + exec_data.stack_start
         local test_var = pop(exec_data.stack_data)
         local stack_top = exec_data.stack_start + #exec_data.stack_data
         local offset = stack_top - target_stack_height
@@ -1777,7 +1790,7 @@ local compile_instruction = {
             "validation failed for br_if! value on top of the stack must be an i32! (func_addr: " ..
             tostring(exec_data.func_addr) .. ", ins_ptr: " .. tostring(ins_ptr) .. ")")
         for k, v in ipairs(label.result_type) do
-            assert(exec_data.stack_data[stack_top - #label.result_type + k] == v,
+            assert(exec_data.stack_data[#exec_data.stack_data - #label.result_type + k] == v,
                 "validation failed! values on the stack are of the wrong type for the br_if instruction! (func_addr: " ..
                 tostring(exec_data.func_addr) .. ", ins_ptr: " .. tostring(ins_ptr) .. ")")
         end
@@ -1791,7 +1804,7 @@ local compile_instruction = {
 
         local selector_var = pop(exec_data.stack_data)
 
-        local fallback_target_stack_height = fallback_label.stack_height + return_count
+        local fallback_target_stack_height = fallback_label.stack_height + return_count + exec_data.stack_start
         local stack_top = exec_data.stack_start + #exec_data.stack_data
         local fallback_offset = stack_top - fallback_target_stack_height
 
@@ -1813,7 +1826,7 @@ local compile_instruction = {
         end
         for x = 1, #instruction[2] do
             local label = exec_data.labels[#exec_data.labels - instruction[2][x]]
-            local target_stack_height = label.stack_height + return_count
+            local target_stack_height = label.stack_height + return_count + exec_data.stack_start
             local offset = stack_top - target_stack_height
             if offset ~= 0 then
                 local local_jump_name = basename .. "_" .. tostring(x)
@@ -2606,6 +2619,19 @@ local compile_instruction = {
         pop(exec_data.stack_data)
         exec_data.stack_data[#exec_data.stack_data] = "i32"
     end,
+    [0x4E] = function(bytecode, exec_data, instruction, ins_ptr) -- i32.ge_s
+        local stack_top = exec_data.stack_start + #exec_data.stack_data
+        bytecode:op_tget(stack_top + 1, 1, "S", bytecode:const("signed_32"))
+        bytecode:op_move(stack_top + 3, stack_top - 1)
+        bytecode:op_call(stack_top + 1, 1, 1)
+        bytecode:op_tget(stack_top + 2, 1, "S", bytecode:const("signed_32"))
+        bytecode:op_move(stack_top + 4, stack_top)
+        bytecode:op_call(stack_top + 2, 1, 1)
+        bytecode:emit(bc.BC.ISGE, stack_top + 1, stack_top + 2)
+        emit_bool_to_num_lookup(bytecode, stack_top - 1, stack_top, tostring(ins_ptr))
+        pop(exec_data.stack_data)
+        exec_data.stack_data[#exec_data.stack_data] = "i32"
+    end,
     [0x4F] = function(bytecode, exec_data, instruction, ins_ptr) -- i32.ge_u
         local stack_top = exec_data.stack_start + #exec_data.stack_data
         bytecode:emit(bc.BC.ISGE, stack_top - 1, stack_top)
@@ -2657,6 +2683,13 @@ local compile_instruction = {
         pop(exec_data.stack_data)
         exec_data.stack_data[#exec_data.stack_data] = "i32"
     end,
+    [0x66] = function(bytecode, exec_data, instruction, ins_ptr) -- f64.ge
+        local stack_top = exec_data.stack_start + #exec_data.stack_data
+        bytecode:emit(bc.BC.ISGE, stack_top - 1, stack_top)
+        emit_bool_to_num_lookup(bytecode, stack_top - 1, stack_top, tostring(ins_ptr))
+        pop(exec_data.stack_data)
+        exec_data.stack_data[#exec_data.stack_data] = "i32"
+    end,
     [0x67] = function(bytecode, exec_data, instruction, ins_ptr) -- i32.clz
         local stack_top = exec_data.stack_start + #exec_data.stack_data
         bytecode:op_move(stack_top + 2, stack_top)
@@ -2704,6 +2737,28 @@ local compile_instruction = {
         bytecode:op_call(stack_top - 1, 1, 1)
         pop(exec_data.stack_data)
     end,
+    [0x6F] = function(bytecode, exec_data, instruction, ins_ptr) -- i32.rem_s
+        local stack_top = exec_data.stack_start + #exec_data.stack_data
+
+        
+        bytecode:op_tget(stack_top + 1, 1, "S", bytecode:const("signed_32"))
+        bytecode:op_move(stack_top + 3, stack_top - 1)
+        bytecode:op_call(stack_top + 1, 1, 1)
+        bytecode:op_tget(stack_top + 2, 1, "S", bytecode:const("signed_32"))
+        bytecode:op_move(stack_top + 4, stack_top)
+        bytecode:op_call(stack_top + 2, 1, 1)
+
+        bytecode:op_tget(stack_top + 3, 1, "S", bytecode:const("trunc"))
+        bytecode:op_div(stack_top + 5, stack_top + 1, stack_top + 2)
+        bytecode:op_call(stack_top + 3, 1, 1)
+        bytecode:op_mul(stack_top + 4, stack_top + 3, stack_top + 2)
+        bytecode:op_tget(stack_top + 2, 1, "S", bytecode:const("inv_signed_32"))
+        bytecode:op_call(stack_top + 2, 1, 1)
+        bytecode:op_sub(stack_top - 1, stack_top + 1, stack_top + 2)
+
+        pop(exec_data.stack_data)
+
+    end,
     [0x70] = function(bytecode, exec_data, instruction, ins_ptr) -- i32.rem_u
         local stack_top = exec_data.stack_start + #exec_data.stack_data
         bytecode:op_tget(stack_top + 1, 1, "S", bytecode:const("trunc"))
@@ -2743,6 +2798,14 @@ local compile_instruction = {
         bytecode:op_move(stack_top + 1, stack_top - 1)
         bytecode:op_move(stack_top + 2, stack_top)
         bytecode:op_tget(stack_top - 1, 1, "S", bytecode:const("lshift"))
+        bytecode:op_call(stack_top - 1, 1, 2)
+        pop(exec_data.stack_data)
+    end,
+    [0x75] = function(bytecode, exec_data, instruction, ins_ptr) -- i32.shr_s
+        local stack_top = exec_data.stack_start + #exec_data.stack_data
+        bytecode:op_move(stack_top + 1, stack_top - 1)
+        bytecode:op_move(stack_top + 2, stack_top)
+        bytecode:op_tget(stack_top - 1, 1, "S", bytecode:const("arshift"))
         bytecode:op_call(stack_top - 1, 1, 2)
         pop(exec_data.stack_data)
     end,
@@ -2796,6 +2859,11 @@ local compile_instruction = {
 
         pop(exec_data.stack_data)
     end,
+    [0xA3] = function(bytecode, exec_data, instruction, ins_ptr) -- f64.div
+        local stack_top = exec_data.stack_start + #exec_data.stack_data
+        bytecode:op_div(stack_top - 1, stack_top - 1, stack_top)
+        pop(exec_data.stack_data)
+    end,
     [0xA7] = function(bytecode, exec_data, instruction, ins_ptr) -- i32.wrap_i64
         local stack_top = exec_data.stack_start + #exec_data.stack_data
 
@@ -2807,6 +2875,30 @@ local compile_instruction = {
         bytecode:op_call(stack_top, 1, 1)
 
         exec_data.stack_data[#exec_data.stack_data] = "i32"
+    end,
+    [0xAB] = function(bytecode, exec_data, instruction, ins_ptr) -- i32.trunc_f64_u
+        local stack_top = exec_data.stack_start + #exec_data.stack_data
+        
+        bytecode:op_move(stack_top + 2, stack_top)
+        bytecode:op_tget(stack_top, 1, "S", bytecode:const("band"))
+        bytecode:op_load(stack_top + 3, 0xFFFFFFFF)
+        bytecode:op_call(stack_top, 1, 2)
+
+        exec_data.stack_data[#exec_data.stack_data] = "i32"
+    end,
+    [0xB6] = function(bytecode, exec_data, instruction, ins_ptr) -- f32.demote_f64
+        exec_data.stack_data[#exec_data.stack_data] = "f32"
+    end,
+    [0xB8] = function(bytecode, exec_data, instruction, ins_ptr) -- f64.convert_i32_u
+        exec_data.stack_data[#exec_data.stack_data] = "f64"
+    end,
+    [0xBA] = function(bytecode, exec_data, instruction, ins_ptr) -- f64.convert_i64_u
+        local stack_top = exec_data.stack_start + #exec_data.stack_data
+        bytecode:op_move(stack_top + 2, stack_top)
+        bytecode:op_gget(stack_top, "tonumber")
+        bytecode:op_call(stack_top, 1, 1)
+        
+        exec_data.stack_data[#exec_data.stack_data] = "f64"
     end,
 }
 
@@ -2966,15 +3058,16 @@ local function compile_function(func_addr, module)
         bytecode:line(k)
         --if func_addr ~= 49 then
         --    local stack_top = #exec_data.stack_data + exec_data.stack_start
-        --    bytecode:op_gget(stack_top + 1, "print")
-        --    bytecode:op_load(stack_top + 3, "func_" .. tostring(func_addr))
-        --    bytecode:op_load(stack_top + 4, "ins")
-        --    bytecode:op_load(stack_top + 5, k)
-        --    bytecode:op_call(stack_top + 1, 0, 3)
-        --    --local a = stack_top - 3
-        --    --if a < exec_data.stack_start + 1 then
-        --    --    a = exec_data.stack_start + 1
-        --    --end
+        --    bytecode:op_gget(stack_top + 11, "print")
+        --    bytecode:op_load(stack_top + 13, "func_" .. tostring(func_addr))
+        --    bytecode:op_load(stack_top + 14, "ins")
+        --    bytecode:op_load(stack_top + 15, k)
+        --    bytecode:op_load(stack_top + 16, instruction[1])
+        --    bytecode:op_call(stack_top + 11, 0, 4)
+        --    local a = stack_top - 3
+        --    if a < exec_data.stack_start + 1 then
+        --        a = exec_data.stack_start + 1
+        --    end
         --    --for x = stack_top, a, -1 do
         --    --    bytecode:op_gget(stack_top + 1, "print")
         --    --    bytecode:op_move(stack_top + 3, x)
@@ -2985,16 +3078,27 @@ local function compile_function(func_addr, module)
         --    --    bytecode:op_move(stack_top + 3, x)
         --    --    bytecode:op_call(stack_top + 1, 0, 1)
         --    --end
-        --    for x = 2, stack_top do repeat
+        --    for x = 0, stack_top do repeat
         --            if x == exec_data.stack_start then break end
-        --            bytecode:op_gget(stack_top + 3, "print")
-        --            bytecode:op_move(stack_top + 5, x)
-        --            bytecode:op_call(stack_top + 3, 0, 1)
+        --            bytecode:op_gget(stack_top + 13, "print")
+        --            bytecode:op_move(stack_top + 15, x)
+        --            bytecode:op_call(stack_top + 13, 0, 1)
         --        until true
         --    end
         --end
 
+        --print("ins:",k)
+        --local a = instruction[0]
+        --instruction[0] = nil
+        --print(serpent.line(instruction, {comment = false}))
+        --instruction[0] = a
+        --print(serpent.block(exec_data.stack_data, {comment = false}))
+        --print(serpent.block(exec_data.labels, {comment = false}))
+
         compiler(bytecode, exec_data, instruction, k)
+        --if func_addr == 5 and k > 191 then
+        --    os.exit()
+        --end
     end
 
     return bc.Dump.new(bytecode, "func " .. tostring(func_addr)):pack()
@@ -3039,9 +3143,6 @@ local function full_eval(module, funcaddr, opt_start_stack)
         local creating_instruction_cache
         while true do
             local ins = current_frame.func.body[current_frame.ins_ptr]
-            --print("ins_ptr:", current_frame.ins_ptr, "ins: ", ins[1], "top_label_is_function: ", top(labels).is_function,
-            --    "other: ", ins[2], "label_stack_height: ", #labels, "current_function: ", current_frame.func_addr,
-            --    "stack height: ", #stack, "other2: ", ins[3])
             local ins_func = ins[0]
             local result
             if creating_instruction_cache ~= nil then
