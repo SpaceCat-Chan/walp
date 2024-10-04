@@ -28,7 +28,7 @@ return function(module, alt_name, memory)
         for x = 1, string.len(s) do
             chars[x] = string.byte(s, x)
         end
-        table.insert(string_table, chars)
+        string_table[#string_table + 1] = chars
         return #string_table
     end
     local create_ssi_vec = function(vec)
@@ -36,12 +36,15 @@ return function(module, alt_name, memory)
         for x = 1, #vec do
             chars[x] = vec[x]
         end
-        table.insert(string_table, chars)
+        string_table[#string_table + 1] = chars
         return #string_table
     end
 
     local load_ssi_string = function(index)
         local ssi = string_table[index]
+        if ssi == nil then
+            return nil
+        end
         local s = ""
         for x = 1, #ssi do
             s = s .. string.char(ssi[x])
@@ -51,11 +54,17 @@ return function(module, alt_name, memory)
 
     local load_ssi_vec = function(index)
         local ssi = string_table[index]
+        if ssi == nil then
+            return nil
+        end
         local s = {}
         for x = 1, #ssi do
             s[x] = ssi[x]
         end
         return s
+    end
+    local delete_ssi = function(index)
+        string_table[index] = nil
     end
 
     module.IMPORTS[alt_name].tostring = function(number)
@@ -86,7 +95,7 @@ return function(module, alt_name, memory)
         for x = ptr, ptr + len - 1 do
             str[x - ptr + 1] = memory.read8(x)
         end
-        table.insert(string_table, str)
+        string_table[#string_table + 1] = str
         return #string_table
     end
     module.IMPORTS[alt_name].print_ssi = function(index)
@@ -102,5 +111,6 @@ return function(module, alt_name, memory)
         create_ssi_vec = create_ssi_vec,
         load_ssi_string = load_ssi_string,
         load_ssi_vec = load_ssi_vec,
+        delete_ssi = delete_ssi,
     }
 end

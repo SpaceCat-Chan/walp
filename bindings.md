@@ -98,3 +98,7 @@ returns the string for the SSI if it exists
 &nbsp;  
 `load_ssi_vec(s: SSI) -> attay<u8>/nil`  
 returns the raw byte vector for the SSI if it exists
+
+&nbsp;  
+`delete_ssi(s: SSI) -> nil`  
+deletes the ssi string if it exists

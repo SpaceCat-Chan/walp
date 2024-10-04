@@ -1,5 +1,5 @@
 pub mod raw {
-    type SSI = u32;
+    pub type SSI = u32;
     extern "C" {
         pub fn print(ptr: *const u8, len: usize);
         pub fn math_random() -> f64;
@@ -91,6 +91,12 @@ impl SSI {
 
     /// creates an SSI object from a string
     pub fn from_string(s: &str) -> SSI {
+        Self {
+            index: unsafe { raw::store_string(s.as_ptr(), s.len()) },
+        }
+    }
+    /// creates an SSI object from a vec
+    pub fn from_vec(s: &[u8]) -> SSI {
         Self {
             index: unsafe { raw::store_string(s.as_ptr(), s.len()) },
         }
