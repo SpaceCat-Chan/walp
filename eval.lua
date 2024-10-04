@@ -1063,6 +1063,13 @@ instructions = {
         push(stack, res)
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
+    [0x82] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.rem_u
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        local res, rem = i64_div_core(n1, n2)
+        push(stack, rem)
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
+    end,
     [0x83] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.and
         local n2 = pop(stack)
         local n1 = pop(stack)
@@ -1223,6 +1230,16 @@ instructions = {
         push(stack, n1 / n2)
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
+    [0x98] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).copysign
+        local n2 = pop(stack)
+        local n1 = pop(stack)
+        if (n1 > 0) == (n2 > 0) then
+            push(stack, n1)
+        else
+            push(stack, -n1)
+        end
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
+    end,
     [0xA7] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.wrap_i64
         push(stack, pop(stack).l)
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
@@ -1241,7 +1258,23 @@ instructions = {
         push(stack, { l = n, h = 0 })
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
+    [0xB2] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).convert_i32_s
+        local n = pop(stack)
+        push(stack, bit.signed(32, n))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
+    end,
     [0xB3] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).convert_i32_u
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
+    end,
+    [0xB4] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).convert_i64_s
+        local n = pop(stack)
+        if bit.band(n.h, 0x80000000) then
+            local res = bit.bnot(n.h) * 4294967296 + bit.bnot(n.l)
+            push(stack, -(res + 1))
+        else
+            local res = n.h * 4294967296 + n.l
+            push(stack, res)
+        end
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     [0xB5] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- (f32/f64).convert_i64_u
@@ -1275,6 +1308,21 @@ instructions = {
     [0xBF] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- f64.reinterpret_i64
         local n = pop(stack)
         push(stack, bit.UInt32sToDouble(n.l, n.h))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
+    end,
+    [0xC0] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.extend8_s
+        local n = pop(stack)
+        push(stack, bit.extend_8_to_32(n))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
+    end,
+    [0xC1] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i32.extend16_s
+        local n = pop(stack)
+        push(stack, bit.extend_16_to_32(n))
+        return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
+    end,
+    [0xC3] = function(ins, stack, frame, labels, module, frame_cache, next_ins, next_ins_data, ...) -- i64.extend16_s
+        local n = pop(stack)
+        push(stack, bit.extend_16_to_64(n))
         return next_ins(next_ins_data, stack, frame, labels, module, frame_cache, ...)
     end,
     -- EXTRA INSTRUCTIONS ----------------------------
